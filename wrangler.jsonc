@@ -1,7 +1,21 @@
 {
   "name": "kimtewon-ar",
   "compatibility_date": "2026-02-09",
+  "main": "src/worker.js",
   "assets": {
-    "directory": "./ar-engine/public"
-  }
+    "directory": "./public",
+    "binding": "ASSETS"
+  },
+  "r2_buckets": [
+    {
+      "binding": "AR_BUCKET",
+      "bucket_name": "ar-uploads"
+    }
+  ],
+  "kv_namespaces": [
+    {
+      "binding": "AR_META",
+      "id": "PLACEHOLDER_KV_ID"
+    }
+  ]
 }

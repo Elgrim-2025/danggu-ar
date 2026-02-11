@@ -1,0 +1,3 @@
+/*
+  Permissions-Policy: camera=*, microphone=*, gyroscope=*, accelerometer=*
+  Access-Control-Allow-Origin: *
