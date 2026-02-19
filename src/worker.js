@@ -30,6 +30,12 @@ export default {
       return env.ASSETS.fetch(new Request(arUrl, request));
     }
 
+    // Root path — serve index.html explicitly (required when html_handling is "none")
+    if (path === '/' || path === '') {
+      const indexUrl = new URL('/index.html', request.url);
+      return env.ASSETS.fetch(new Request(indexUrl, request));
+    }
+
     // Static assets fallthrough
     return env.ASSETS.fetch(request);
   }
