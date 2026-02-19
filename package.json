@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "wrangler dev",
+    "build": "echo build ok",
     "deploy": "wrangler deploy",
     "r2:create": "wrangler r2 bucket create ar-uploads",
     "kv:create": "wrangler kv namespace create AR_META"
