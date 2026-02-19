@@ -1,6 +1,26 @@
 (function () {
     'use strict';
 
+    // ─── DOM (먼저 선언해야 showError 호출 가능) ─────────────────
+    const errorScreen = document.getElementById('error-screen');
+    const errorMessage = document.getElementById('error-message');
+    const startScreen = document.getElementById('start-screen');
+    const startBtn = document.getElementById('start-btn');
+    const permissionStatus = document.getElementById('permission-status');
+    const loadingScreen = document.getElementById('loading-screen');
+    const loadingText = document.getElementById('loading-text');
+    const arContainer = document.getElementById('ar-container');
+    const videoBackground = document.getElementById('video-background');
+    const instruction = document.getElementById('instruction');
+    const adjustToggleBtn = document.getElementById('adjust-toggle-btn');
+    const colorAdjustPanel = document.getElementById('color-adjust-panel');
+    const panelCloseBtn = document.getElementById('panel-close-btn');
+    const adjustColor = document.getElementById('adjust-color');
+    const adjustSimilarity = document.getElementById('adjust-similarity');
+    const adjustSmoothness = document.getElementById('adjust-smoothness');
+    const adjSimVal = document.getElementById('adj-sim-val');
+    const adjSmoothVal = document.getElementById('adj-smooth-val');
+
     // ─── Extract AR ID from URL ──────────────────────────────────
     const pathParts = window.location.pathname.split('/ar/');
     const arId = pathParts[1];
@@ -27,26 +47,6 @@
         pinchStartDist: 0,
         pinchStartScale: 1
     };
-
-    // ─── DOM ─────────────────────────────────────────────────────
-    const errorScreen = document.getElementById('error-screen');
-    const errorMessage = document.getElementById('error-message');
-    const startScreen = document.getElementById('start-screen');
-    const startBtn = document.getElementById('start-btn');
-    const permissionStatus = document.getElementById('permission-status');
-    const loadingScreen = document.getElementById('loading-screen');
-    const loadingText = document.getElementById('loading-text');
-    const arContainer = document.getElementById('ar-container');
-    const videoBackground = document.getElementById('video-background');
-    const instruction = document.getElementById('instruction');
-    const adjustToggleBtn = document.getElementById('adjust-toggle-btn');
-    const colorAdjustPanel = document.getElementById('color-adjust-panel');
-    const panelCloseBtn = document.getElementById('panel-close-btn');
-    const adjustColor = document.getElementById('adjust-color');
-    const adjustSimilarity = document.getElementById('adjust-similarity');
-    const adjustSmoothness = document.getElementById('adjust-smoothness');
-    const adjSimVal = document.getElementById('adj-sim-val');
-    const adjSmoothVal = document.getElementById('adj-smooth-val');
 
     // ─── Fetch Metadata ──────────────────────────────────────────
     startBtn.disabled = true;
