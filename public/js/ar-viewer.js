@@ -85,11 +85,11 @@
         permissionStatus.textContent = '권한 요청 중...';
 
         try {
-            const stream = await navigator.mediaDevices.getUserMedia({
-                video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } },
+            cameraStream = await navigator.mediaDevices.getUserMedia({
+                video: { facingMode, width: { ideal: 1280 }, height: { ideal: 720 } },
                 audio: false
             });
-            videoBackground.srcObject = stream;
+            videoBackground.srcObject = cameraStream;
             await videoBackground.play();
 
             if (typeof DeviceOrientationEvent !== 'undefined' &&
@@ -214,7 +214,7 @@
         camera.position.set(0, 0, 0);
         scene.add(camera);
 
-        renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, premultipliedAlpha: false });
+        renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, premultipliedAlpha: false, preserveDrawingBuffer: true });
         renderer.setPixelRatio(window.devicePixelRatio);
         renderer.setSize(window.innerWidth, window.innerHeight);
         renderer.setClearColor(0x000000, 0);
@@ -278,6 +278,57 @@
             side: THREE.DoubleSide
         });
     }
+
+    // ─── 카메라 전환 ─────────────────────────────────────────────
+    let facingMode = 'environment';
+    let cameraStream = null;
+
+    document.getElementById('flip-btn').addEventListener('click', async () => {
+        facingMode = facingMode === 'environment' ? 'user' : 'environment';
+        if (cameraStream) {
+            cameraStream.getTracks().forEach(t => t.stop());
+        }
+        try {
+            cameraStream = await navigator.mediaDevices.getUserMedia({
+                video: { facingMode, width: { ideal: 1280 }, height: { ideal: 720 } },
+                audio: false
+            });
+            videoBackground.srcObject = cameraStream;
+            await videoBackground.play();
+        } catch (e) {
+            facingMode = facingMode === 'environment' ? 'user' : 'environment'; // 되돌리기
+        }
+    });
+
+    // ─── 캡처 ────────────────────────────────────────────────────
+    document.getElementById('capture-btn').addEventListener('click', () => {
+        const W = window.innerWidth;
+        const H = window.innerHeight;
+
+        const canvas = document.createElement('canvas');
+        canvas.width = W;
+        canvas.height = H;
+        const ctx = canvas.getContext('2d');
+
+        // 1. 카메라 배경 (object-fit: cover 시뮬레이션)
+        const vw = videoBackground.videoWidth;
+        const vh = videoBackground.videoHeight;
+        if (vw && vh) {
+            const scale = Math.max(W / vw, H / vh);
+            const dw = vw * scale, dh = vh * scale;
+            ctx.drawImage(videoBackground, (W - dw) / 2, (H - dh) / 2, dw, dh);
+        }
+
+        // 2. Three.js 오버레이 (크로마키 적용된 레이어)
+        renderer.render(scene, camera);
+        ctx.drawImage(renderer.domElement, 0, 0, W, H);
+
+        // 3. 저장
+        const link = document.createElement('a');
+        link.download = 'ar-capture.png';
+        link.href = canvas.toDataURL('image/png');
+        link.click();
+    });
 
     // ─── 색상 조정 패널 ──────────────────────────────────────────
     function setupAdjustPanel() {
