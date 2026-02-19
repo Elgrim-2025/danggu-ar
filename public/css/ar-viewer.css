@@ -189,6 +189,37 @@ body {
     opacity: 0;
 }
 
+/* 파일 전환 버튼 */
+#file-switch-btns {
+    position: absolute;
+    top: 16px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 20;
+    display: flex;
+    gap: 10px;
+}
+
+.file-btn {
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    background: rgba(0, 0, 0, 0.55);
+    color: #fff;
+    border: 2px solid rgba(255, 255, 255, 0.25);
+    font-size: 18px;
+    font-weight: 700;
+    cursor: pointer;
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
+    transition: background 0.2s, border-color 0.2s;
+}
+
+.file-btn.active {
+    background: rgba(77, 166, 255, 0.75);
+    border-color: #4da6ff;
+}
+
 /* Color Adjust Toggle */
 #adjust-toggle-btn {
     position: absolute;
