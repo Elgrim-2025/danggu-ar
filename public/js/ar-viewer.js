@@ -375,7 +375,8 @@
             if (!hudMesh) return;
             if (gesture.isDragging && e.touches.length === 1) {
                 const scale = screenToLocal();
-                hudMesh.position.x = gesture.objStartX + (e.touches[0].clientX - gesture.dragStartX) * scale;
+                const xDir = facingMode === 'user' ? -1 : 1;
+                hudMesh.position.x = gesture.objStartX + xDir * (e.touches[0].clientX - gesture.dragStartX) * scale;
                 hudMesh.position.y = gesture.objStartY - (e.touches[0].clientY - gesture.dragStartY) * scale;
             } else if (gesture.isPinching && e.touches.length === 2) {
                 const ratio = getTouchDist(e.touches) / gesture.pinchStartDist;
@@ -404,7 +405,8 @@
         touchArea.addEventListener('mousemove', e => {
             if (!mouseDown || !hudMesh) return;
             const scale = screenToLocal();
-            hudMesh.position.x = gesture.objStartX + (e.clientX - gesture.dragStartX) * scale;
+            const xDir = facingMode === 'user' ? -1 : 1;
+            hudMesh.position.x = gesture.objStartX + xDir * (e.clientX - gesture.dragStartX) * scale;
             hudMesh.position.y = gesture.objStartY - (e.clientY - gesture.dragStartY) * scale;
         });
         touchArea.addEventListener('mouseup', () => { mouseDown = false; });
