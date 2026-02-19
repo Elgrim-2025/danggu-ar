@@ -49,6 +49,8 @@
     const adjSmoothVal = document.getElementById('adj-smooth-val');
 
     // ─── Fetch Metadata ──────────────────────────────────────────
+    startBtn.disabled = true;
+    startBtn.textContent = '로딩 중...';
     fetchMeta();
 
     async function fetchMeta() {
@@ -66,6 +68,9 @@
             adjustSmoothness.value = arMeta.smoothness;
             adjSimVal.textContent = arMeta.similarity.toFixed(2);
             adjSmoothVal.textContent = arMeta.smoothness.toFixed(2);
+
+            startBtn.disabled = false;
+            startBtn.textContent = '시작하기';
         } catch (e) {
             showError('네트워크 오류가 발생했습니다.');
         }
