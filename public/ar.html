@@ -36,11 +36,20 @@
         <!-- Layer 2: Three.js canvas (appended by JS) -->
         <div id="canvas-container"></div>
 
+        <!-- 파일 전환 버튼 (다중 파일일 때만 표시) -->
+        <div id="file-switch-btns" class="hidden"></div>
+
         <!-- Touch area for gestures -->
         <div id="touch-area"></div>
 
         <!-- Instruction overlay -->
         <div id="instruction">드래그: 이동 / 핀치: 확대축소</div>
+
+        <!-- 카메라 전환 버튼 -->
+        <button id="flip-btn">🔄</button>
+
+        <!-- 캡처 버튼 -->
+        <button id="capture-btn"></button>
 
         <!-- Color adjustment toggle -->
         <button id="adjust-toggle-btn">색상 조정</button>

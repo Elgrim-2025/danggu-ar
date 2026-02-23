@@ -189,6 +189,80 @@ body {
     opacity: 0;
 }
 
+/* 파일 전환 버튼 */
+#file-switch-btns {
+    position: absolute;
+    top: 16px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 20;
+    display: flex;
+    gap: 10px;
+}
+
+.file-btn {
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    background: rgba(0, 0, 0, 0.55);
+    color: #fff;
+    border: 2px solid rgba(255, 255, 255, 0.25);
+    font-size: 18px;
+    font-weight: 700;
+    cursor: pointer;
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
+    transition: background 0.2s, border-color 0.2s;
+}
+
+.file-btn.active {
+    background: rgba(77, 166, 255, 0.75);
+    border-color: #4da6ff;
+}
+
+/* 카메라 전환 버튼 */
+#flip-btn {
+    position: absolute;
+    bottom: 24px;
+    left: 16px;
+    z-index: 10;
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    background: rgba(0, 0, 0, 0.55);
+    border: 2px solid rgba(255, 255, 255, 0.3);
+    font-size: 22px;
+    cursor: pointer;
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
+}
+
+#flip-btn:active { opacity: 0.6; }
+
+/* 캡처 버튼 */
+#capture-btn {
+    position: absolute;
+    bottom: 24px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 10;
+    width: 64px;
+    height: 64px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.15);
+    border: 3px solid rgba(255, 255, 255, 0.6);
+    font-size: 28px;
+    cursor: pointer;
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
+    transition: transform 0.1s, background 0.2s;
+}
+
+#capture-btn:active {
+    transform: translateX(-50%) scale(0.88);
+    background: rgba(255, 255, 255, 0.35);
+}
+
 /* Color Adjust Toggle */
 #adjust-toggle-btn {
     position: absolute;

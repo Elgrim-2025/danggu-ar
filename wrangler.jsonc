@@ -1,10 +1,11 @@
 {
-  "name": "kimtewon-ar",
+  "name": "photo-ar-website",
   "compatibility_date": "2026-02-09",
   "main": "src/worker.js",
   "assets": {
     "directory": "./public",
-    "binding": "ASSETS"
+    "binding": "ASSETS",
+    "html_handling": "none"
   },
   "r2_buckets": [
     {
@@ -15,7 +16,7 @@
   "kv_namespaces": [
     {
       "binding": "AR_META",
-      "id": "PLACEHOLDER_KV_ID"
+      "id": "98f8b6fb7a0e4d69b5f64fad00b75b63"
     }
   ]
 }
