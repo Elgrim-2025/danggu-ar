@@ -234,7 +234,7 @@
 
     function createHudMesh(texture, aspect, file) {
         const material = createChromaMaterial(texture, file.color, file.similarity, file.smoothness);
-        const planeHeight = 0.9;  // 첫 등장 시 더 큰 크기
+        const planeHeight = 1.8;  // 첫 등장 시 큰 크기 (Cloudflare 배포용)
         const geometry = new THREE.PlaneGeometry(planeHeight * aspect, planeHeight);
         hudMesh = new THREE.Mesh(geometry, material);
         hudMesh.position.set(0, 0, -1.5);
@@ -300,35 +300,172 @@
         }
     });
 
-    // ─── 캡처 ────────────────────────────────────────────────────
-    document.getElementById('capture-btn').addEventListener('click', () => {
+    // ─── 캡처 + 길게 누르면 녹화 (탭=사진, 길게 누름=동영상) ─────────
+    const captureBtn = document.getElementById('capture-btn');
+    const HOLD_MS = 350;
+    let holdTimer = null;
+    let holdRecording = false;
+
+    function doCapture() {
         const W = window.innerWidth;
         const H = window.innerHeight;
-
         const canvas = document.createElement('canvas');
         canvas.width = W;
         canvas.height = H;
         const ctx = canvas.getContext('2d');
-
-        // 1. 카메라 배경 (object-fit: cover 시뮬레이션)
         const vw = videoBackground.videoWidth;
         const vh = videoBackground.videoHeight;
         if (vw && vh) {
             const scale = Math.max(W / vw, H / vh);
             const dw = vw * scale, dh = vh * scale;
-            ctx.drawImage(videoBackground, (W - dw) / 2, (H - dh) / 2, dw, dh);
+            const mirror = facingMode === 'user';
+            if (mirror) {
+                ctx.save();
+                ctx.scale(-1, 1);
+                ctx.drawImage(videoBackground, -W - (W - dw) / 2, (H - dh) / 2, dw, dh);
+                ctx.restore();
+            } else {
+                ctx.drawImage(videoBackground, (W - dw) / 2, (H - dh) / 2, dw, dh);
+            }
         }
-
-        // 2. Three.js 오버레이 (크로마키 적용된 레이어)
         renderer.render(scene, camera);
         ctx.drawImage(renderer.domElement, 0, 0, W, H);
-
-        // 3. 저장
         const link = document.createElement('a');
         link.download = 'ar-capture.png';
         link.href = canvas.toDataURL('image/png');
         link.click();
+    }
+
+    function drawVideoCover(ctx, video, w, h, mirror) {
+        const vw = video.videoWidth, vh = video.videoHeight;
+        if (!vw || !vh) return;
+        const vr = vw / vh;
+        const cr = w / h;
+        let sx, sy, sw, sh;
+        if (vr > cr) {
+            sh = vh; sw = vh * cr; sx = (vw - sw) / 2; sy = 0;
+        } else {
+            sw = vw; sh = vw / cr; sx = 0; sy = (vh - sh) / 2;
+        }
+        if (mirror) {
+            ctx.save();
+            ctx.scale(-1, 1);
+            ctx.drawImage(video, sx, sy, sw, sh, -w, 0, w, h);
+            ctx.restore();
+        } else {
+            ctx.drawImage(video, sx, sy, sw, sh, 0, 0, w, h);
+        }
+    }
+
+    let mediaRecorder = null, recordedChunks = [], recStream = null;
+    let isRecording = false;
+    let recFormat = null, recAnimId = null;
+
+    function getRecFormat() {
+        const types = [
+            { mimeType: 'video/mp4', ext: 'mp4' },
+            { mimeType: 'video/mp4;codecs=avc1', ext: 'mp4' },
+            { mimeType: 'video/webm;codecs=vp9', ext: 'webm' },
+            { mimeType: 'video/webm', ext: 'webm' }
+        ];
+        for (const t of types) {
+            if (MediaRecorder.isTypeSupported(t.mimeType)) return t;
+        }
+        return { mimeType: '', ext: 'mp4' };
+    }
+
+    function startRecording() {
+        const arCanvas = document.querySelector('#canvas-container canvas');
+        if (!videoBackground || !arCanvas) return;
+        if (typeof MediaRecorder === 'undefined') {
+            console.warn('[Record] MediaRecorder 미지원');
+            return;
+        }
+        try {
+            recFormat = getRecFormat();
+            const pr = window.devicePixelRatio || 1;
+            const cw = window.innerWidth * pr, ch = window.innerHeight * pr;
+            const comp = document.createElement('canvas');
+            comp.width = cw;
+            comp.height = ch;
+            const cctx = comp.getContext('2d', { alpha: false, desynchronized: true });
+            const mirror = facingMode === 'user';
+
+            function drawFrame() {
+                if (!isRecording) return;
+                drawVideoCover(cctx, videoBackground, cw, ch, mirror);
+                cctx.drawImage(arCanvas, 0, 0, arCanvas.width, arCanvas.height, 0, 0, cw, ch);
+                recAnimId = requestAnimationFrame(drawFrame);
+            }
+
+            recStream = comp.captureStream(30);
+            recordedChunks = [];
+            const opts = recFormat.mimeType
+                ? { mimeType: recFormat.mimeType, videoBitsPerSecond: 5000000 }
+                : { videoBitsPerSecond: 5000000 };
+            mediaRecorder = new MediaRecorder(recStream, opts);
+            mediaRecorder.ondataavailable = e => { if (e.data.size > 0) recordedChunks.push(e.data); };
+            mediaRecorder.onstop = () => {
+                isRecording = false;
+                cancelAnimationFrame(recAnimId);
+                captureBtn.classList.remove('recording');
+                const blob = new Blob(recordedChunks, { type: recFormat.ext === 'mp4' ? 'video/mp4' : 'video/webm' });
+                const a = document.createElement('a');
+                a.download = 'ar-recording-' + Date.now() + '.' + recFormat.ext;
+                a.href = URL.createObjectURL(blob);
+                a.click();
+                URL.revokeObjectURL(a.href);
+            };
+            mediaRecorder.start(100);
+            isRecording = true;
+            captureBtn.classList.add('recording');
+            drawFrame();
+        } catch (e) {
+            console.error('[Record] 녹화 실패:', e);
+            isRecording = false;
+            captureBtn.classList.remove('recording');
+        }
+    }
+
+    function stopRecording() {
+        isRecording = false;
+        if (mediaRecorder && mediaRecorder.state === 'recording') mediaRecorder.stop();
+        cancelAnimationFrame(recAnimId);
+        captureBtn.classList.remove('recording');
+    }
+
+    captureBtn.style.touchAction = 'none';
+    captureBtn.addEventListener('pointerdown', e => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (isRecording) return;
+        try { captureBtn.setPointerCapture(e.pointerId); } catch (_) {}
+        holdTimer = setTimeout(() => {
+            holdTimer = null;
+            holdRecording = true;
+            startRecording();
+        }, HOLD_MS);
     });
+    captureBtn.addEventListener('pointerup', e => {
+        e.stopPropagation();
+        if (holdTimer) {
+            clearTimeout(holdTimer);
+            holdTimer = null;
+            doCapture();
+        } else if (holdRecording) {
+            holdRecording = false;
+            stopRecording();
+        }
+    });
+    captureBtn.addEventListener('pointerleave', () => {
+        if (holdTimer) { clearTimeout(holdTimer); holdTimer = null; }
+        if (holdRecording) { holdRecording = false; stopRecording(); }
+    });
+    captureBtn.addEventListener('pointercancel', () => {
+        if (holdTimer) { clearTimeout(holdTimer); holdTimer = null; }
+        if (holdRecording) { holdRecording = false; stopRecording(); }
+    });
+    captureBtn.addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); });
 
     // ─── 색상 조정 패널 ──────────────────────────────────────────
     function setupAdjustPanel() {

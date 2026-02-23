@@ -151,6 +151,7 @@
             border-radius: 50%;
             cursor: pointer;
             z-index: 100;
+            touch-action: none;  /* 길게 누르기 시 브라우저 기본 동작 방지 */
         }
 
         #capture-btn:active {
@@ -936,7 +937,7 @@
         // 짧게 탭 = 사진 촬영, 길게 누름 = 동영상 녹화 (손 떼면 정지)
         // ========================================
         const captureBtn = document.getElementById('capture-btn');
-        const HOLD_THRESHOLD_MS = 400;  // 400ms 이상 누르면 녹화 모드
+        const HOLD_THRESHOLD_MS = 350;  // 350ms 이상 누르면 녹화 모드
         let captureHoldTimer = null;
         let isHoldRecording = false;    // 길게 눌러서 녹화 중인지
 
@@ -945,6 +946,7 @@
             e.preventDefault();
             if (isRecording) return;  // 이미 녹화 중이면 무시
 
+            try { captureBtn.setPointerCapture(e.pointerId); } catch (_) {}
             captureHoldTimer = setTimeout(() => {
                 captureHoldTimer = null;
                 isHoldRecording = true;
