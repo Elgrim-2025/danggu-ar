@@ -234,7 +234,7 @@
 
     function createHudMesh(texture, aspect, file) {
         const material = createChromaMaterial(texture, file.color, file.similarity, file.smoothness);
-        const planeHeight = 0.5;
+        const planeHeight = 0.9;  // 첫 등장 시 더 큰 크기
         const geometry = new THREE.PlaneGeometry(planeHeight * aspect, planeHeight);
         hudMesh = new THREE.Mesh(geometry, material);
         hudMesh.position.set(0, 0, -1.5);

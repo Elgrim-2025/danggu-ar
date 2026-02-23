@@ -387,7 +387,8 @@
     <!-- 안내 오버레이 (터치 시 사라짐) -->
     <div id="instruction-overlay">
         드래그: 위치 이동<br>
-        핀치: 크기 조절
+        핀치: 크기 조절<br>
+        <span style="font-size:0.9em;color:#aaa">탭: 사진 / 길게 누르기: 녹화</span>
     </div>
 
 <button id="download-btn">↓</button>
@@ -931,11 +932,68 @@
         });
 
         // ========================================
-        // 화면 캡처 기능
+        // 화면 캡처 + 길게 누르면 녹화 기능
+        // 짧게 탭 = 사진 촬영, 길게 누름 = 동영상 녹화 (손 떼면 정지)
         // ========================================
-        document.getElementById('capture-btn').addEventListener('click', (e) => {
+        const captureBtn = document.getElementById('capture-btn');
+        const HOLD_THRESHOLD_MS = 400;  // 400ms 이상 누르면 녹화 모드
+        let captureHoldTimer = null;
+        let isHoldRecording = false;    // 길게 눌러서 녹화 중인지
+
+        captureBtn.addEventListener('pointerdown', (e) => {
             e.stopPropagation();
-            captureScreen();
+            e.preventDefault();
+            if (isRecording) return;  // 이미 녹화 중이면 무시
+
+            captureHoldTimer = setTimeout(() => {
+                captureHoldTimer = null;
+                isHoldRecording = true;
+                startRecording();
+                console.log('[Capture] 길게 누름 → 녹화 시작');
+            }, HOLD_THRESHOLD_MS);
+        });
+
+        captureBtn.addEventListener('pointerup', (e) => {
+            e.stopPropagation();
+            if (captureHoldTimer) {
+                clearTimeout(captureHoldTimer);
+                captureHoldTimer = null;
+                // 짧게 탭 → 사진 촬영
+                captureScreen();
+                console.log('[Capture] 짧게 탭 → 사진 촬영');
+            } else if (isHoldRecording) {
+                isHoldRecording = false;
+                stopRecording();
+                console.log('[Capture] 손 뗌 → 녹화 정지');
+            }
+        });
+
+        captureBtn.addEventListener('pointerleave', (e) => {
+            if (captureHoldTimer) {
+                clearTimeout(captureHoldTimer);
+                captureHoldTimer = null;
+            }
+            if (isHoldRecording) {
+                isHoldRecording = false;
+                stopRecording();
+                console.log('[Capture] 영역 벗어남 → 녹화 정지');
+            }
+        });
+
+        captureBtn.addEventListener('pointercancel', () => {
+            if (captureHoldTimer) {
+                clearTimeout(captureHoldTimer);
+                captureHoldTimer = null;
+            }
+            if (isHoldRecording) {
+                isHoldRecording = false;
+                stopRecording();
+            }
+        });
+
+        captureBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            e.preventDefault();
         });
 
         // object-fit: cover 방식으로 비디오를 캔버스에 그리는 헬퍼
