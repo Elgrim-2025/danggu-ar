@@ -39,9 +39,8 @@
         div.dataset.idx = idx;
         div.innerHTML = `
             <div class="slot-dropzone" id="dz-${idx}">
-                <div class="drop-icon">+</div>
-                <p>파일을 여기에 끌어놓거나<br>탭하여 선택하세요</p>
-                <small>jpg · png · mp4 · webm · 50MB 이하</small>
+                <p>파일을 여기에 끌어다 놓거나<br>아래 버튼으로 선택하세요</p>
+                <small>JPG &middot; PNG &middot; MP4 &middot; WEBM &middot; 50MB 이하</small>
                 <input type="file" id="fi-${idx}" accept="image/jpeg,image/png,video/mp4,video/webm" hidden>
                 <button class="select-btn" data-idx="${idx}">파일 선택</button>
             </div>
@@ -49,10 +48,10 @@
                 <div class="config-header">
                     <span class="slot-num">파일 ${idx + 1}</span>
                     <span class="slot-fname" id="fn-${idx}"></span>
-                    <button class="remove-btn" data-idx="${idx}">✕</button>
+                    <button class="remove-btn" data-idx="${idx}">×</button>
                 </div>
                 <div class="audio-row hidden" id="ar-${idx}">
-                    <span class="audio-label">🔊 소리</span>
+                    <span class="audio-label">소리</span>
                     <label class="switch">
                         <input type="checkbox" id="aud-${idx}">
                         <span class="switch-track"></span>

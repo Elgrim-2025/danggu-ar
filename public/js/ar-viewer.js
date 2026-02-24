@@ -91,6 +91,7 @@
             });
             videoBackground.srcObject = cameraStream;
             await videoBackground.play();
+            videoBackground.style.transform = facingMode === 'user' ? 'scaleX(-1)' : '';
 
             if (typeof DeviceOrientationEvent !== 'undefined' &&
                 typeof DeviceOrientationEvent.requestPermission === 'function') {
@@ -295,16 +296,15 @@
             });
             videoBackground.srcObject = cameraStream;
             await videoBackground.play();
+            videoBackground.style.transform = facingMode === 'user' ? 'scaleX(-1)' : '';
         } catch (e) {
             facingMode = facingMode === 'environment' ? 'user' : 'environment'; // 되돌리기
         }
     });
 
-    // ─── 캡처 + 길게 누르면 녹화 (탭=사진, 길게 누름=동영상) ─────────
+    // ─── 캡처 (사진) / 녹화 (토글) ──────────────────────────────
     const captureBtn = document.getElementById('capture-btn');
-    const HOLD_MS = 350;
-    let holdTimer = null;
-    let holdRecording = false;
+    const recordBtn  = document.getElementById('record-btn');
 
     function doCapture() {
         const W = window.innerWidth;
@@ -408,7 +408,7 @@
             mediaRecorder.onstop = () => {
                 isRecording = false;
                 cancelAnimationFrame(recAnimId);
-                captureBtn.classList.remove('recording');
+                recordBtn.classList.remove('recording');
                 const blob = new Blob(recordedChunks, { type: recFormat.ext === 'mp4' ? 'video/mp4' : 'video/webm' });
                 const a = document.createElement('a');
                 a.download = 'ar-recording-' + Date.now() + '.' + recFormat.ext;
@@ -418,12 +418,12 @@
             };
             mediaRecorder.start(100);
             isRecording = true;
-            captureBtn.classList.add('recording');
+            recordBtn.classList.add('recording');
             drawFrame();
         } catch (e) {
             console.error('[Record] 녹화 실패:', e);
             isRecording = false;
-            captureBtn.classList.remove('recording');
+            recordBtn.classList.remove('recording');
         }
     }
 
@@ -431,41 +431,17 @@
         isRecording = false;
         if (mediaRecorder && mediaRecorder.state === 'recording') mediaRecorder.stop();
         cancelAnimationFrame(recAnimId);
-        captureBtn.classList.remove('recording');
+        recordBtn.classList.remove('recording');
     }
 
-    captureBtn.style.touchAction = 'none';
-    captureBtn.addEventListener('pointerdown', e => {
-        e.preventDefault();
-        e.stopPropagation();
-        if (isRecording) return;
-        try { captureBtn.setPointerCapture(e.pointerId); } catch (_) {}
-        holdTimer = setTimeout(() => {
-            holdTimer = null;
-            holdRecording = true;
-            startRecording();
-        }, HOLD_MS);
+    // 사진 버튼: 탭 = 사진 저장
+    captureBtn.addEventListener('click', () => doCapture());
+
+    // 녹화 버튼: 탭 = 녹화 시작/정지 토글
+    recordBtn.addEventListener('click', () => {
+        if (isRecording) stopRecording();
+        else startRecording();
     });
-    captureBtn.addEventListener('pointerup', e => {
-        e.stopPropagation();
-        if (holdTimer) {
-            clearTimeout(holdTimer);
-            holdTimer = null;
-            doCapture();
-        } else if (holdRecording) {
-            holdRecording = false;
-            stopRecording();
-        }
-    });
-    captureBtn.addEventListener('pointerleave', () => {
-        if (holdTimer) { clearTimeout(holdTimer); holdTimer = null; }
-        if (holdRecording) { holdRecording = false; stopRecording(); }
-    });
-    captureBtn.addEventListener('pointercancel', () => {
-        if (holdTimer) { clearTimeout(holdTimer); holdTimer = null; }
-        if (holdRecording) { holdRecording = false; stopRecording(); }
-    });
-    captureBtn.addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); });
 
     // ─── 색상 조정 패널 ──────────────────────────────────────────
     function setupAdjustPanel() {
@@ -512,8 +488,7 @@
             if (!hudMesh) return;
             if (gesture.isDragging && e.touches.length === 1) {
                 const scale = screenToLocal();
-                const xDir = facingMode === 'user' ? -1 : 1;
-                hudMesh.position.x = gesture.objStartX + xDir * (e.touches[0].clientX - gesture.dragStartX) * scale;
+                hudMesh.position.x = gesture.objStartX + (e.touches[0].clientX - gesture.dragStartX) * scale;
                 hudMesh.position.y = gesture.objStartY - (e.touches[0].clientY - gesture.dragStartY) * scale;
             } else if (gesture.isPinching && e.touches.length === 2) {
                 const ratio = getTouchDist(e.touches) / gesture.pinchStartDist;
@@ -542,8 +517,7 @@
         touchArea.addEventListener('mousemove', e => {
             if (!mouseDown || !hudMesh) return;
             const scale = screenToLocal();
-            const xDir = facingMode === 'user' ? -1 : 1;
-            hudMesh.position.x = gesture.objStartX + xDir * (e.clientX - gesture.dragStartX) * scale;
+            hudMesh.position.x = gesture.objStartX + (e.clientX - gesture.dragStartX) * scale;
             hudMesh.position.y = gesture.objStartY - (e.clientY - gesture.dragStartY) * scale;
         });
         touchArea.addEventListener('mouseup', () => { mouseDown = false; });
