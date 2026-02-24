@@ -70,6 +70,14 @@
                     smoothness: meta.smoothness, audio: false }];
             }
 
+            // 제목 표시
+            if (meta.title) {
+                const titleEl = document.getElementById('ar-title-display');
+                titleEl.textContent = meta.title;
+                titleEl.classList.remove('hidden');
+                document.title = meta.title + ' · AR';
+            }
+
             startBtn.disabled = false;
             startBtn.textContent = '시작하기';
         } catch (e) {

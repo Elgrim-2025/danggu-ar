@@ -75,7 +75,8 @@ async function handleUpload(request, env) {
 
     if (files.length === 0) return jsonResponse({ error: '파일이 없습니다.' }, 400);
 
-    const metadata = { id: groupId, files, createdAt: Date.now() };
+    const rawTitle = (formData.get('title') || '').toString().trim().slice(0, 50);
+    const metadata = { id: groupId, title: rawTitle || null, files, createdAt: Date.now() };
     await env.AR_META.put(groupId, JSON.stringify(metadata), {
       expirationTtl: 30 * 24 * 60 * 60
     });

@@ -88,6 +88,14 @@ body {
     color: #fff;
 }
 
+#ar-title-display {
+    font-size: 18px;
+    font-weight: 700;
+    color: #fff;
+    letter-spacing: -0.03em;
+    margin-bottom: 2px;
+}
+
 #start-screen p {
     color: var(--text-sub);
     font-size: 13px;
@@ -258,16 +266,16 @@ body {
     transition: transform 0.1s;
 }
 
-#flip-btn:active,
-#capture-btn:active,
+#flip-btn:active { transform: scale(0.9); }
+#capture-btn:active { transform: translateX(-50%) scale(0.91); }
 #record-btn:active { transform: scale(0.9); }
 
 /* Flip button */
 #flip-btn {
-    bottom: 28px;
+    bottom: 30px;
     left: 22px;
-    width: 46px;
-    height: 46px;
+    width: 44px;
+    height: 44px;
     color: rgba(255,255,255,0.65);
     font-size: 11px;
     font-weight: 600;
@@ -275,42 +283,41 @@ body {
     text-transform: uppercase;
 }
 
-/* Photo shutter button */
+/* Photo shutter button — centered, largest */
 #capture-btn {
-    bottom: 22px;
-    left: calc(50% - 42px);
-    width: 58px;
-    height: 58px;
-    background: rgba(255,255,255,0.88);
-    border: 3px solid rgba(255,255,255,0.25);
-    box-shadow: 0 0 0 3px rgba(0,0,0,0.35);
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 64px;
+    height: 64px;
+    background: rgba(255,255,255,0.9);
+    border: 3px solid rgba(255,255,255,0.22);
+    box-shadow: 0 0 0 3px rgba(0,0,0,0.3);
 }
 
 #capture-btn::before {
     content: '';
     display: block;
-    width: 42px;
-    height: 42px;
+    width: 48px;
+    height: 48px;
     border-radius: 50%;
     background: transparent;
-    border: 2px solid rgba(0,0,0,0.18);
+    border: 2px solid rgba(0,0,0,0.14);
 }
 
-#capture-btn:active { transform: scale(0.91); }
-
-/* Record button */
+/* Record button — smaller, right of shutter */
 #record-btn {
-    bottom: 22px;
-    left: calc(50% + 4px);
-    width: 58px;
-    height: 58px;
+    bottom: 30px;
+    left: calc(50% + 48px);
+    width: 44px;
+    height: 44px;
 }
 
 #record-btn::before {
     content: '';
     display: block;
-    width: 20px;
-    height: 20px;
+    width: 16px;
+    height: 16px;
     border-radius: 50%;
     background: #ff3535;
     transition: border-radius 0.25s cubic-bezier(0.4,0,0.2,1),
@@ -319,9 +326,9 @@ body {
 }
 
 #record-btn.recording::before {
-    border-radius: 4px;
-    width: 17px;
-    height: 17px;
+    border-radius: 3px;
+    width: 14px;
+    height: 14px;
 }
 
 #record-btn.recording {
@@ -330,33 +337,11 @@ body {
 
 @keyframes rec-ring {
     0%, 100% { box-shadow: 0 0 0 0 rgba(255,53,53,0.5); }
-    50%       { box-shadow: 0 0 0 9px rgba(255,53,53,0); }
+    50%       { box-shadow: 0 0 0 8px rgba(255,53,53,0); }
 }
 
-/* Adjust toggle button */
-#adjust-toggle-btn {
-    position: absolute;
-    bottom: 28px;
-    right: 20px;
-    z-index: 10;
-    background: var(--btn-bg);
-    color: rgba(255,255,255,0.55);
-    border: 1px solid var(--btn-border);
-    padding: 8px 14px;
-    border-radius: 20px;
-    font-size: 11px;
-    font-weight: 500;
-    letter-spacing: 0.04em;
-    cursor: pointer;
-    backdrop-filter: blur(18px);
-    -webkit-backdrop-filter: blur(18px);
-    transition: background 0.15s, color 0.15s;
-}
-
-#adjust-toggle-btn:active {
-    background: rgba(91,108,242,0.3);
-    color: #fff;
-}
+/* Adjust button + panel — hidden */
+#adjust-toggle-btn { display: none !important; }
 
 /* ─── Color Adjust Panel ────────────────────────── */
 

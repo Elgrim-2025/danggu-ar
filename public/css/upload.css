@@ -63,6 +63,35 @@ h2 {
     text-transform: uppercase;
 }
 
+/* ─── Project Title ─────────────────────────────── */
+
+#title-section { margin-bottom: 16px; }
+
+#project-title {
+    width: 100%;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 13px 16px;
+    border-radius: var(--radius-lg);
+    font-size: 15px;
+    font-weight: 500;
+    letter-spacing: -0.01em;
+    outline: none;
+    transition: border-color 0.2s, background 0.2s;
+    caret-color: var(--accent);
+}
+
+#project-title:focus {
+    border-color: var(--accent-border);
+    background: rgba(91,108,242,0.05);
+}
+
+#project-title::placeholder {
+    color: var(--text-dim);
+    font-weight: 400;
+}
+
 /* ─── File Slot ──────────────────────────────────── */
 
 .file-slot {

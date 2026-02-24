@@ -288,6 +288,8 @@
 
         try {
             const fd = new FormData();
+            const title = (document.getElementById('project-title').value || '').trim();
+            if (title) fd.append('title', title);
             filled.forEach((slot, i) => {
                 fd.append(`file${i}`, slot.file);
                 fd.append(`color${i}`, slot.color);
