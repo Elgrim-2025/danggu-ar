@@ -2,7 +2,10 @@
   "permissions": {
     "allow": [
       "WebFetch(domain:developers.cloudflare.com)",
-      "Bash(git push)"
+      "Bash(git push)",
+      "Bash(gh auth status)",
+      "Bash(echo \"protocol=https:*)",
+      "Bash(git credential reject)"
     ]
   }
 }
