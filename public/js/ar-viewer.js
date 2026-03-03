@@ -407,6 +407,24 @@
             }
 
             recStream = comp.captureStream(30);
+
+            // 현재 파일에 오디오가 있으면 비디오 엘리먼트에서 오디오 트랙 추가
+            const currentFile = arFiles[currentFileIdx];
+            if (currentFile && currentFile.audio && mediaVideoEl) {
+                try {
+                    const vidStream = mediaVideoEl.captureStream
+                        ? mediaVideoEl.captureStream()
+                        : mediaVideoEl.mozCaptureStream
+                        ? mediaVideoEl.mozCaptureStream()
+                        : null;
+                    if (vidStream) {
+                        vidStream.getAudioTracks().forEach(track => recStream.addTrack(track));
+                    }
+                } catch (e) {
+                    console.warn('[Record] 오디오 트랙 추가 실패:', e);
+                }
+            }
+
             recordedChunks = [];
             const opts = recFormat.mimeType
                 ? { mimeType: recFormat.mimeType, videoBitsPerSecond: 5000000 }
