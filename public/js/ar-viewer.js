@@ -374,18 +374,19 @@
 
     function getRecFormat() {
         const types = [
+            { mimeType: 'video/webm;codecs=vp9,opus', ext: 'webm' },
+            { mimeType: 'video/webm;codecs=vp8,opus', ext: 'webm' },
+            { mimeType: 'video/mp4;codecs=avc1,mp4a.40.2', ext: 'mp4' },
+            { mimeType: 'video/webm', ext: 'webm' },
             { mimeType: 'video/mp4', ext: 'mp4' },
-            { mimeType: 'video/mp4;codecs=avc1', ext: 'mp4' },
-            { mimeType: 'video/webm;codecs=vp9', ext: 'webm' },
-            { mimeType: 'video/webm', ext: 'webm' }
         ];
         for (const t of types) {
             if (MediaRecorder.isTypeSupported(t.mimeType)) return t;
         }
-        return { mimeType: '', ext: 'mp4' };
+        return { mimeType: '', ext: 'webm' };
     }
 
-    function startRecording() {
+    async function startRecording() {
         const arCanvas = document.querySelector('#canvas-container canvas');
         if (!videoBackground || !arCanvas) return;
         if (typeof MediaRecorder === 'undefined') {
@@ -411,28 +412,41 @@
 
             recStream = comp.captureStream(30);
 
-            // 오디오 캡처: 최초 녹화 버튼 클릭(user gesture)에서 Web Audio API 설정
-            if (mediaVideoEl && !videoAudioCtx) {
-                try {
-                    videoAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
-                    videoAudioCtx.resume();
-                    const src = videoAudioCtx.createMediaElementSource(mediaVideoEl);
-                    videoAudioDest = videoAudioCtx.createMediaStreamDestination();
-                    src.connect(videoAudioCtx.destination); // 스피커 유지
-                    src.connect(videoAudioDest);            // 녹음 전용
-                } catch(e) {
-                    console.warn('[Record] 오디오 설정 실패:', e);
-                    videoAudioCtx = null; videoAudioDest = null;
+            // 오디오 캡처: 1차 captureStream → 2차 Web Audio API
+            if (mediaVideoEl) {
+                let audioAdded = false;
+
+                // 1차: captureStream (Chrome/Android - 비디오 unmuted 상태)
+                if (mediaVideoEl.captureStream) {
+                    try {
+                        const audioTracks = mediaVideoEl.captureStream().getAudioTracks();
+                        audioTracks.forEach(t => recStream.addTrack(t));
+                        audioAdded = audioTracks.length > 0;
+                    } catch(e) {}
                 }
-            }
-            if (videoAudioDest) {
-                videoAudioDest.stream.getAudioTracks().forEach(t => recStream.addTrack(t));
+
+                // 2차: Web Audio API (iOS/Safari, captureStream 미지원 또는 오디오 트랙 없을 때)
+                if (!audioAdded && !videoAudioCtx) {
+                    try {
+                        videoAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                        await videoAudioCtx.resume();
+                        const src = videoAudioCtx.createMediaElementSource(mediaVideoEl);
+                        videoAudioDest = videoAudioCtx.createMediaStreamDestination();
+                        src.connect(videoAudioCtx.destination);
+                        src.connect(videoAudioDest);
+                    } catch(e) {
+                        videoAudioCtx = null; videoAudioDest = null;
+                    }
+                }
+                if (!audioAdded && videoAudioDest) {
+                    videoAudioDest.stream.getAudioTracks().forEach(t => recStream.addTrack(t));
+                }
             }
 
             recordedChunks = [];
             const opts = recFormat.mimeType
-                ? { mimeType: recFormat.mimeType, videoBitsPerSecond: 5000000 }
-                : { videoBitsPerSecond: 5000000 };
+                ? { mimeType: recFormat.mimeType, videoBitsPerSecond: 5000000, audioBitsPerSecond: 128000 }
+                : { videoBitsPerSecond: 5000000, audioBitsPerSecond: 128000 };
             mediaRecorder = new MediaRecorder(recStream, opts);
             mediaRecorder.ondataavailable = e => { if (e.data.size > 0) recordedChunks.push(e.data); };
             mediaRecorder.onstop = () => {
