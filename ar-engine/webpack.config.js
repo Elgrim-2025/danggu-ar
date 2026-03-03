@@ -53,6 +53,11 @@ module.exports = {
                     noErrorOnMissing: true
                 },
                 {
+                    from: 'public/ar-original.html',
+                    to: 'ar-original.html',
+                    noErrorOnMissing: true
+                },
+                {
                     from: 'public/*.webm',
                     to: '[name][ext]',
                     noErrorOnMissing: true

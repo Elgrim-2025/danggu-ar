@@ -516,8 +516,11 @@ class ARApp {
         // 비디오 엘리먼트 생성
         this.hudVideo = document.createElement('video');
         this.hudVideo.loop = true;
-        // 2번 영상(singgang2.mp4)만 사운드 재생
-        this.hudVideo.muted = !this.currentVideoSrc.includes('singgang2');
+        // ★ muted=false로 설정해야 Web Audio API(createMediaElementSource)로 오디오를 캡처할 수 있음
+        // 사운드가 없는 영상은 volume=0으로 무음 처리 (muted 대신)
+        this.hudVideo.muted = false;
+        const hasSoundSrc = this.currentVideoSrc.includes('singgang2');
+        this.hudVideo.volume = hasSoundSrc ? 0.8 : 0;  // 일반 영상은 volume=0 (무음)
         this.hudVideo.playsInline = true;
         this.hudVideo.setAttribute('playsinline', '');
         this.hudVideo.setAttribute('webkit-playsinline', '');
@@ -525,11 +528,11 @@ class ARApp {
         this.hudVideo.preload = 'auto';
         this.hudVideo.src = this.currentVideoSrc;
         
-        // 사운드가 있는 영상의 경우 볼륨 설정 및 안내창 표시
-        if (!this.hudVideo.muted) {
-            this.hudVideo.volume = 0.8;
+        if (hasSoundSrc) {
             console.log('[AR] 사운드 활성화 (볼륨: 80%)');
             this.showNotification('2번째는 음악이 나옵니다', 3000);
+        } else {
+            console.log('[AR] 영상 무음 모드 (volume=0, 녹화 시 오디오 포함 가능)');
         }
 
         // 비디오 로드 및 재생

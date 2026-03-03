@@ -151,7 +151,8 @@
             border-radius: 50%;
             cursor: pointer;
             z-index: 100;
-            touch-action: none;  /* 길게 누르기 시 브라우저 기본 동작 방지 */
+            touch-action: none;
+            /* 길게 누르기 시 브라우저 기본 동작 방지 */
         }
 
         #capture-btn:active {
@@ -392,7 +393,7 @@
         <span style="font-size:0.9em;color:#aaa">탭: 사진 / 길게 누르기: 녹화</span>
     </div>
 
-<button id="download-btn">↓</button>
+    <button id="download-btn">↓</button>
     <button id="capture-btn"></button>
     <button id="record-btn"></button>
     <button id="camera-switch">
@@ -413,7 +414,7 @@
         // ========================================
         // 인앱 브라우저 감지 및 외부 브라우저 유도
         // ========================================
-        (function() {
+        (function () {
             var userAgent = navigator.userAgent.toLowerCase();
             var currentUrl = window.location.href;
 
@@ -422,7 +423,7 @@
 
             if (isInAppBrowser) {
                 console.log('[Browser] 인앱 브라우저 감지됨:', userAgent);
-                
+
                 // Android 감지
                 var isAndroid = /android/i.test(userAgent);
                 // iOS 감지
@@ -432,9 +433,9 @@
                     // 카카오톡 전용 외부 브라우저 열기
                     console.log('[Browser] 카카오톡 → 외부 브라우저 리다이렉트 시도');
                     window.location.href = 'kakaotalk://web/openExternal?url=' + encodeURIComponent(currentUrl);
-                    
+
                     // 리다이렉트 실패 시 안내 표시
-                    setTimeout(function() {
+                    setTimeout(function () {
                         showBrowserGuide('카카오톡');
                     }, 500);
                 } else if (isAndroid) {
@@ -443,9 +444,9 @@
                     var intentUrl = 'intent://' + currentUrl.replace(/https?:\/\//, '') +
                         '#Intent;scheme=https;package=com.android.chrome;end';
                     window.location.href = intentUrl;
-                    
+
                     // 리다이렉트 실패 시 안내 표시
-                    setTimeout(function() {
+                    setTimeout(function () {
                         showBrowserGuide('Android');
                     }, 500);
                 } else if (isIOS) {
@@ -462,7 +463,7 @@
                 if (existing) {
                     existing.remove();
                 }
-                
+
                 var guideHtml =
                     '<div id="browserGuide" style="' +
                     'position: fixed; top: 0; left: 0; right: 0; bottom: 0; ' +
@@ -501,19 +502,19 @@
                     '</button>' +
                     '</div>' +
                     '</div>';
-                    
+
                 document.body.insertAdjacentHTML('beforeend', guideHtml);
             }
 
             // 클립보드 복사 함수 (전역)
-            window.copyUrlToClipboard = function() {
+            window.copyUrlToClipboard = function () {
                 var url = window.location.href;
-                
+
                 // 클립보드 복사
                 if (navigator.clipboard && navigator.clipboard.writeText) {
-                    navigator.clipboard.writeText(url).then(function() {
+                    navigator.clipboard.writeText(url).then(function () {
                         alert('✅ 링크가 복사되었습니다!\n\nSafari 또는 Chrome에서\n붙여넣기 해주세요.');
-                    }).catch(function() {
+                    }).catch(function () {
                         fallbackCopy(url);
                     });
                 } else {
@@ -530,14 +531,14 @@
                 document.body.appendChild(input);
                 input.select();
                 input.setSelectionRange(0, 99999); // 모바일 대응
-                
+
                 try {
                     document.execCommand('copy');
                     alert('✅ 링크가 복사되었습니다!\n\nSafari 또는 Chrome에서\n붙여넣기 해주세요.');
                 } catch (e) {
                     alert('링크 복사 실패\n\n수동으로 복사해주세요:\n' + text);
                 }
-                
+
                 document.body.removeChild(input);
             }
         })();
@@ -946,7 +947,7 @@
             e.preventDefault();
             if (isRecording) return;  // 이미 녹화 중이면 무시
 
-            try { captureBtn.setPointerCapture(e.pointerId); } catch (_) {}
+            try { captureBtn.setPointerCapture(e.pointerId); } catch (_) { }
             captureHoldTimer = setTimeout(() => {
                 captureHoldTimer = null;
                 isHoldRecording = true;
@@ -1170,18 +1171,78 @@
                 }
 
                 // 캔버스에서 스트림 생성 (60fps)
-                recordingStream = compositeCanvas.captureStream(60);
+                const videoStream = compositeCanvas.captureStream(60);
                 recordedChunks = [];
                 console.log('[Record] 스트림 생성 완료 (60fps)');
+
+                // === 오디오 캡처: AR 영상(hudVideo)의 오디오를 녹화에 포함 ===
+                let audioTrack = null;
+                try {
+                    // AR 영상 요소 찾기 (main.js에서 window.arApp.hudVideo에 저장됨)
+                    const hudVideo = (window.arApp && window.arApp.hudVideo)
+                        ? window.arApp.hudVideo
+                        : document.querySelector('video[src]');
+
+                    if (hudVideo) {
+                        // ★ volume=0(무음)인 경우 녹화를 위해 볼륨을 올림
+                        //   (main.js에서 muted=false/volume=0 방식으로 처리됨)
+                        const prevVolume = hudVideo.volume;
+                        const prevMuted = hudVideo.muted;
+                        if (hudVideo.muted || hudVideo.volume === 0) {
+                            hudVideo.muted = false;
+                            hudVideo.volume = 0.8;
+                            console.log('[Record] 녹화를 위해 hudVideo 볼륨 활성화 (volume=0.8)');
+                        }
+                        // 녹화 종료 시 원래 상태 복원을 위해 저장
+                        window._recPrevVolume = prevVolume;
+                        window._recPrevMuted = prevMuted;
+                        window._recHudVideo = hudVideo;
+
+                        // AudioContext 생성 (또는 기존 것 재사용)
+                        if (!window._recAudioCtx || window._recAudioCtx.state === 'closed') {
+                            window._recAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                        }
+                        const audioCtx = window._recAudioCtx;
+                        if (audioCtx.state === 'suspended') audioCtx.resume().catch(() => { });
+
+                        // 이미 연결된 소스가 있으면 재사용, 없으면 새로 생성
+                        if (!hudVideo._mediaSource) {
+                            hudVideo._mediaSource = audioCtx.createMediaElementSource(hudVideo);
+                            // 원래 스피커로도 계속 들리도록 연결
+                            hudVideo._mediaSource.connect(audioCtx.destination);
+                        }
+
+                        // MediaStreamDestination으로 오디오 라우팅
+                        const audioDest = audioCtx.createMediaStreamDestination();
+                        hudVideo._mediaSource.connect(audioDest);
+                        audioTrack = audioDest.stream.getAudioTracks()[0];
+
+                        // 녹화 종료 시 audioDest 연결 해제를 위해 저장
+                        window._recAudioDest = audioDest;
+                        console.log('[Record] 오디오 트랙 캡처 성공:', audioTrack);
+                    } else {
+                        console.warn('[Record] hudVideo를 찾을 수 없어 오디오 없이 녹화합니다.');
+                    }
+                } catch (audioErr) {
+                    console.warn('[Record] 오디오 캡처 실패 (영상만 녹화):', audioErr);
+                }
+
+                // 비디오 트랙 + 오디오 트랙 합치기
+                const allTracks = [...videoStream.getVideoTracks()];
+                if (audioTrack) allTracks.push(audioTrack);
+                recordingStream = new MediaStream(allTracks);
+                console.log('[Record] 최종 스트림 트랙:', allTracks.map(t => t.kind + '/' + t.label));
 
                 // === 화질 개선: 고비트레이트 설정 ===
                 const options = recordingFormat.mimeType
                     ? {
                         mimeType: recordingFormat.mimeType,
-                        videoBitsPerSecond: 8000000  // 8Mbps (고화질)
+                        videoBitsPerSecond: 8000000,  // 8Mbps (고화질)
+                        audioBitsPerSecond: 128000    // 128kbps 오디오
                     }
                     : {
-                        videoBitsPerSecond: 8000000  // 8Mbps (고화질)
+                        videoBitsPerSecond: 8000000,
+                        audioBitsPerSecond: 128000
                     };
                 console.log('[Record] MediaRecorder 옵션:', options);
                 mediaRecorder = new MediaRecorder(recordingStream, options);
@@ -1199,6 +1260,27 @@
                     isRecording = false;
                     cancelAnimationFrame(recordingAnimId);
                     recordBtn.classList.remove('recording');
+
+                    // 오디오 연결 해제 + hudVideo 볼륨/muted 상태 복원
+                    try {
+                        if (window._recAudioDest) {
+                            const hv = window._recHudVideo
+                                || (window.arApp && window.arApp.hudVideo) || null;
+                            if (hv && hv._mediaSource) {
+                                hv._mediaSource.disconnect(window._recAudioDest);
+                            }
+                            // 녹화 전 볼륨/muted 상태로 복원
+                            if (hv) {
+                                hv.volume = (window._recPrevVolume !== undefined) ? window._recPrevVolume : 0;
+                                hv.muted = !!window._recPrevMuted;
+                                console.log('[Record] hudVideo 볼륨/muted 복원:', hv.volume, hv.muted);
+                            }
+                            window._recAudioDest = null;
+                            window._recHudVideo = null;
+                            window._recPrevVolume = undefined;
+                            window._recPrevMuted = undefined;
+                        }
+                    } catch (e) { console.warn('[Record] 오디오 연결 해제 오류:', e); }
 
                     console.log('[Record] 총 청크 수:', recordedChunks.length);
 
