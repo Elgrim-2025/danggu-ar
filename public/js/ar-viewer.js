@@ -38,6 +38,8 @@
     let hudBaseScale = 1.0;
     let mediaVideoEl = null;
     let mediaTexture = null;
+    let videoAudioCtx  = null;  // 녹화 시 생성, 파일 전환 시 닫힘
+    let videoAudioDest = null;
 
     const gesture = {
         isDragging: false, isPinching: false,
@@ -141,6 +143,7 @@
         // 이전 리소스 정리
         if (mediaVideoEl) { mediaVideoEl.pause(); mediaVideoEl = null; }
         if (mediaTexture) { mediaTexture.dispose(); mediaTexture = null; }
+        if (videoAudioCtx) { videoAudioCtx.close(); videoAudioCtx = null; videoAudioDest = null; }
         if (hudMesh) {
             camera.remove(hudMesh);
             hudMesh.geometry.dispose();
@@ -408,12 +411,22 @@
 
             recStream = comp.captureStream(30);
 
-            // 비디오 오디오를 녹화 스트림에 추가
-            if (mediaVideoEl && mediaVideoEl.captureStream) {
+            // 오디오 캡처: 최초 녹화 버튼 클릭(user gesture)에서 Web Audio API 설정
+            if (mediaVideoEl && !videoAudioCtx) {
                 try {
-                    mediaVideoEl.captureStream().getAudioTracks()
-                        .forEach(track => recStream.addTrack(track));
-                } catch(e) {}
+                    videoAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                    videoAudioCtx.resume();
+                    const src = videoAudioCtx.createMediaElementSource(mediaVideoEl);
+                    videoAudioDest = videoAudioCtx.createMediaStreamDestination();
+                    src.connect(videoAudioCtx.destination); // 스피커 유지
+                    src.connect(videoAudioDest);            // 녹음 전용
+                } catch(e) {
+                    console.warn('[Record] 오디오 설정 실패:', e);
+                    videoAudioCtx = null; videoAudioDest = null;
+                }
+            }
+            if (videoAudioDest) {
+                videoAudioDest.stream.getAudioTracks().forEach(t => recStream.addTrack(t));
             }
 
             recordedChunks = [];
