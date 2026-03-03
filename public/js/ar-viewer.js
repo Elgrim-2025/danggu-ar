@@ -156,7 +156,7 @@
         if (isVideo) {
             const video = document.createElement('video');
             video.loop = true;
-            video.muted = !file.audio;   // 소리 설정 반영
+            video.muted = false;   // 항상 소리 재생
             video.playsInline = true;
             video.setAttribute('playsinline', '');
             video.setAttribute('webkit-playsinline', '');
@@ -408,21 +408,12 @@
 
             recStream = comp.captureStream(30);
 
-            // 현재 파일에 오디오가 있으면 비디오 엘리먼트에서 오디오 트랙 추가
-            const currentFile = arFiles[currentFileIdx];
-            if (currentFile && currentFile.audio && mediaVideoEl) {
+            // 비디오 오디오를 녹화 스트림에 추가
+            if (mediaVideoEl && mediaVideoEl.captureStream) {
                 try {
-                    const vidStream = mediaVideoEl.captureStream
-                        ? mediaVideoEl.captureStream()
-                        : mediaVideoEl.mozCaptureStream
-                        ? mediaVideoEl.mozCaptureStream()
-                        : null;
-                    if (vidStream) {
-                        vidStream.getAudioTracks().forEach(track => recStream.addTrack(track));
-                    }
-                } catch (e) {
-                    console.warn('[Record] 오디오 트랙 추가 실패:', e);
-                }
+                    mediaVideoEl.captureStream().getAudioTracks()
+                        .forEach(track => recStream.addTrack(track));
+                } catch(e) {}
             }
 
             recordedChunks = [];

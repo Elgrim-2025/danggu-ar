@@ -5,7 +5,8 @@
       "Bash(git push)",
       "Bash(gh auth status)",
       "Bash(echo \"protocol=https:*)",
-      "Bash(git credential reject)"
+      "Bash(git credential reject)",
+      "Bash(npx wrangler deploy)"
     ]
   }
 }

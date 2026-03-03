@@ -311,8 +311,14 @@
             progressFill.style.width = '100%';
             progressText.textContent = '완료!';
 
-            resultLink.value = window.location.origin + result.url;
+            const fullUrl = window.location.origin + result.url;
+            resultLink.value = fullUrl;
             openArLink.href = result.url;
+
+            // QR 코드 생성
+            const qrBox = document.getElementById('qrcode');
+            qrBox.innerHTML = '';
+            new QRCode(qrBox, { text: fullUrl, width: 200, height: 200, correctLevel: QRCode.CorrectLevel.M });
             generateSection.classList.add('hidden');
             resultSection.classList.remove('hidden');
         } catch (err) {

@@ -47,11 +47,16 @@
                 <input type="text" id="result-link" readonly>
                 <button id="copy-link-btn">복사</button>
             </div>
+            <div id="qrcode-box">
+                <p class="qr-label">폰으로 스캔하세요</p>
+                <div id="qrcode"></div>
+            </div>
             <a id="open-ar-link" href="#" target="_blank">AR 보기 열기</a>
             <button id="new-upload-btn">새로 업로드</button>
         </section>
     </div>
 
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
     <script src="/js/upload.js"></script>
 </body>
 </html>
