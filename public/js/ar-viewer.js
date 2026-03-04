@@ -374,16 +374,17 @@
 
     function getRecFormat() {
         const types = [
+            { mimeType: 'video/mp4;codecs=avc1,mp4a.40.2', ext: 'mp4' },
+            { mimeType: 'video/mp4;codecs=avc1', ext: 'mp4' },
+            { mimeType: 'video/mp4', ext: 'mp4' },
             { mimeType: 'video/webm;codecs=vp9,opus', ext: 'webm' },
             { mimeType: 'video/webm;codecs=vp8,opus', ext: 'webm' },
-            { mimeType: 'video/mp4;codecs=avc1,mp4a.40.2', ext: 'mp4' },
             { mimeType: 'video/webm', ext: 'webm' },
-            { mimeType: 'video/mp4', ext: 'mp4' },
         ];
         for (const t of types) {
             if (MediaRecorder.isTypeSupported(t.mimeType)) return t;
         }
-        return { mimeType: '', ext: 'webm' };
+        return { mimeType: '', ext: 'mp4' };
     }
 
     async function startRecording() {
