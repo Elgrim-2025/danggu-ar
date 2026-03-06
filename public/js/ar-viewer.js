@@ -373,15 +373,15 @@
     let recAnimId = null;
     let _ffmpegCore = null;  // @ffmpeg/core-st 직접 사용 (Worker 없음)
 
-    // ffmpeg-core.js는 자체 호스팅 (cross-origin import 차단 우회)
-    // WASM은 CDN fetch (import 아님, fetch는 CORS 허용)
+    // ffmpeg-core.js 자체 호스팅 + WASM을 미리 fetch해서 직접 전달 (Emscripten이 WASM fetch하지 못하는 문제 우회)
     async function loadFfmpeg() {
         if (_ffmpegCore) return _ffmpegCore;
-        const { default: createFFmpegCore } = await import('/js/ffmpeg-core.js');
-        const wasmURL = 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/esm/ffmpeg-core.wasm';
-        _ffmpegCore = await createFFmpegCore({
-            locateFile: (path) => path.endsWith('.wasm') ? wasmURL : path,
-        });
+        const [{ default: createFFmpegCore }, wasmResp] = await Promise.all([
+            import('/js/ffmpeg-core.js'),
+            fetch('https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/esm/ffmpeg-core.wasm'),
+        ]);
+        const wasmBinary = await wasmResp.arrayBuffer();
+        _ffmpegCore = await createFFmpegCore({ wasmBinary });
         return _ffmpegCore;
     }
 
