@@ -370,106 +370,53 @@
 
     let mediaRecorder = null, recordedChunks = [], recStream = null;
     let isRecording = false;
-    let recFormat = null, recAnimId = null, recCleanupFn = null;
+    let recAnimId = null;
+    let _ffmpeg = null;
 
-    function getRecFormat() {
-        const types = [
-            { mimeType: 'video/mp4;codecs=avc1,mp4a.40.2', ext: 'mp4' },
-            { mimeType: 'video/mp4;codecs=avc1', ext: 'mp4' },
-            { mimeType: 'video/mp4', ext: 'mp4' },
-            { mimeType: 'video/webm;codecs=vp9,opus', ext: 'webm' },
-            { mimeType: 'video/webm;codecs=vp8,opus', ext: 'webm' },
-            { mimeType: 'video/webm', ext: 'webm' },
-        ];
-        for (const t of types) {
-            if (MediaRecorder.isTypeSupported(t.mimeType)) return t;
-        }
-        return { mimeType: '', ext: 'webm' };
+    // ffmpeg.wasm 로드 (최초 1회, 이후 캐시)
+    async function loadFfmpeg() {
+        if (_ffmpeg) return _ffmpeg;
+        const [{ FFmpeg }, { toBlobURL, fetchFile }] = await Promise.all([
+            import('https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.10/dist/esm/index.js'),
+            import('https://cdn.jsdelivr.net/npm/@ffmpeg/util@0.12.1/dist/esm/index.js'),
+        ]);
+        const ffmpeg = new FFmpeg();
+        const base = 'https://cdn.jsdelivr.net/npm/@ffmpeg/core-st@0.12.6/dist/esm';
+        await ffmpeg.load({
+            coreURL: await toBlobURL(`${base}/ffmpeg-core.js`, 'text/javascript'),
+            wasmURL: await toBlobURL(`${base}/ffmpeg-core.wasm`, 'application/wasm'),
+        });
+        _ffmpeg = { ffmpeg, fetchFile };
+        return _ffmpeg;
     }
 
-    async function startRecording() {
+    async function convertToMp4(webmBlob, onProgress) {
+        const { ffmpeg, fetchFile } = await loadFfmpeg();
+        ffmpeg.on('progress', ({ progress }) => onProgress(Math.min(99, Math.round(progress * 100))));
+        await ffmpeg.writeFile('input.webm', await fetchFile(webmBlob));
+        await ffmpeg.exec(['-i', 'input.webm', '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '23', '-c:a', 'aac', '-movflags', '+faststart', 'output.mp4']);
+        const data = await ffmpeg.readFile('output.mp4');
+        await ffmpeg.deleteFile('input.webm');
+        await ffmpeg.deleteFile('output.mp4');
+        return new Blob([data.buffer], { type: 'video/mp4' });
+    }
+
+    function startRecording() {
         const arCanvas = document.querySelector('#canvas-container canvas');
         if (!videoBackground || !arCanvas) return;
-
-        // WebCodecs: moov를 앞에 배치한 정상 MP4 생성 (공유 가능)
-        if (typeof VideoEncoder !== 'undefined') {
-            try {
-                await startRecordingWebCodecs(arCanvas);
-                return;
-            } catch(e) {
-                console.warn('[Record] WebCodecs 실패, MediaRecorder 폴백:', e);
-                isRecording = false;
-                recAnimId && cancelAnimationFrame(recAnimId);
-                recordBtn.classList.remove('recording');
-            }
-        }
         startRecordingMediaRecorder(arCanvas);
-    }
-
-    async function startRecordingWebCodecs(arCanvas) {
-        const { Muxer, ArrayBufferTarget } = await import('https://cdn.jsdelivr.net/npm/mp4-muxer@5/+esm');
-
-        const pr = window.devicePixelRatio || 1;
-        const rawW = Math.round(window.innerWidth * pr);
-        const rawH = Math.round(window.innerHeight * pr);
-        const sc = Math.min(1, 1280 / rawW);
-        const W = Math.floor(rawW * sc / 2) * 2;
-        const H = Math.floor(rawH * sc / 2) * 2;
-
-        // 지원 여부 사전 확인
-        const videoConfig = { codec: 'avc1.42001f', width: W, height: H, bitrate: 4_000_000, framerate: 30 };
-        const support = await VideoEncoder.isConfigSupported(videoConfig);
-        if (!support.supported) throw new Error('H.264 미지원');
-
-        const mirror = facingMode === 'user';
-        const comp = document.createElement('canvas');
-        comp.width = W; comp.height = H;
-        const cctx = comp.getContext('2d', { alpha: false });
-
-        const target = new ArrayBufferTarget();
-        const muxer = new Muxer({ target, video: { codec: 'avc', width: W, height: H }, fastStart: 'in-memory' });
-
-        let encodeError = null;
-        const videoEncoder = new VideoEncoder({
-            output: (chunk, meta) => muxer.addVideoChunk(chunk, meta),
-            error: e => { encodeError = e; },
-        });
-        videoEncoder.configure(videoConfig);
-
-        isRecording = true;
-        recordBtn.classList.add('recording');
-        let startTime = null, frameCount = 0;
-
-        function captureFrame(ts) {
-            if (!isRecording) return;
-            if (startTime === null) startTime = ts;
-            const t = Math.round((ts - startTime) * 1000);
-            drawVideoCover(cctx, videoBackground, W, H, mirror);
-            cctx.drawImage(arCanvas, 0, 0, arCanvas.width, arCanvas.height, 0, 0, W, H);
-            const isKeyFrame = frameCount % 60 === 0;
-            frameCount++;
-            if (videoEncoder.state === 'configured') {
-                const frame = new VideoFrame(comp, { timestamp: t });
-                videoEncoder.encode(frame, { keyFrame: isKeyFrame });
-                frame.close();
-            }
-            recAnimId = requestAnimationFrame(captureFrame);
-        }
-        recAnimId = requestAnimationFrame(captureFrame);
-
-        recCleanupFn = async () => {
-            if (encodeError) throw encodeError;
-            await videoEncoder.flush();
-            muxer.finalize();
-            const blob = new Blob([target.buffer], { type: 'video/mp4' });
-            showSaveOverlay(blob, 'ar-recording-' + Date.now() + '.mp4');
-        };
     }
 
     function startRecordingMediaRecorder(arCanvas) {
         if (typeof MediaRecorder === 'undefined') { console.warn('[Record] MediaRecorder 미지원'); return; }
         try {
-            recFormat = getRecFormat();
+            // WebM으로 녹화 (오디오 포함, fragmented MP4 3초 문제 없음 → ffmpeg으로 MP4 변환)
+            const types = [
+                { mimeType: 'video/webm;codecs=vp9,opus', ext: 'webm' },
+                { mimeType: 'video/webm;codecs=vp8,opus', ext: 'webm' },
+                { mimeType: 'video/webm', ext: 'webm' },
+            ];
+            const recFormat = types.find(t => MediaRecorder.isTypeSupported(t.mimeType)) || { mimeType: '', ext: 'webm' };
             const pr = window.devicePixelRatio || 1;
             const rawCw = Math.round(window.innerWidth * pr);
             const rawCh = Math.round(window.innerHeight * pr);
@@ -520,12 +467,20 @@
                 : { videoBitsPerSecond: 5000000, audioBitsPerSecond: 128000 };
             mediaRecorder = new MediaRecorder(recStream, opts);
             mediaRecorder.ondataavailable = e => { if (e.data.size > 0) recordedChunks.push(e.data); };
-            mediaRecorder.onstop = () => {
+            mediaRecorder.onstop = async () => {
                 isRecording = false;
                 cancelAnimationFrame(recAnimId);
                 recordBtn.classList.remove('recording');
-                const blob = new Blob(recordedChunks, { type: recFormat.ext === 'mp4' ? 'video/mp4' : 'video/webm' });
-                showSaveOverlay(blob, 'ar-recording-' + Date.now() + '.' + recFormat.ext);
+                const webmBlob = new Blob(recordedChunks, { type: 'video/webm' });
+                // 변환 중 오버레이 표시
+                showConvertingOverlay();
+                try {
+                    const mp4Blob = await convertToMp4(webmBlob, updateConvertProgress);
+                    showSaveOverlay(mp4Blob, 'ar-recording-' + Date.now() + '.mp4');
+                } catch(e) {
+                    console.warn('[Record] MP4 변환 실패, WebM으로 저장:', e);
+                    showSaveOverlay(webmBlob, 'ar-recording-' + Date.now() + '.webm');
+                }
             };
             mediaRecorder.start(100);
             isRecording = true;
@@ -538,20 +493,11 @@
         }
     }
 
-    async function stopRecording() {
+    function stopRecording() {
         isRecording = false;
         cancelAnimationFrame(recAnimId);
         recordBtn.classList.remove('recording');
-        if (recCleanupFn) {
-            const fn = recCleanupFn;
-            recCleanupFn = null;
-            try {
-                await fn();
-            } catch(e) {
-                console.warn('[Record] WebCodecs 저장 실패, MediaRecorder 결과 없음:', e);
-                alert('영상 처리 실패. 다시 녹화해주세요.');
-            }
-        } else if (mediaRecorder && mediaRecorder.state === 'recording') {
+        if (mediaRecorder && mediaRecorder.state === 'recording') {
             mediaRecorder.stop();
         }
     }
@@ -670,6 +616,25 @@
     }
 
     // ─── 영상 저장 오버레이 ───────────────────────────────────────
+    function showConvertingOverlay() {
+        const overlay = document.getElementById('save-overlay');
+        const msg = document.getElementById('save-msg');
+        const progress = document.getElementById('convert-progress');
+        const link = document.getElementById('save-link');
+        msg.textContent = '녹화 완료! MP4로 변환 중...';
+        progress.classList.remove('hidden');
+        link.classList.add('hidden');
+        updateConvertProgress(0);
+        overlay.classList.remove('hidden');
+    }
+
+    function updateConvertProgress(pct) {
+        const bar = document.getElementById('convert-bar');
+        const text = document.getElementById('convert-text');
+        if (bar) bar.style.width = pct + '%';
+        if (text) text.textContent = pct < 5 ? '로딩 중... (최초 1회 ~10MB)' : `변환 중... ${pct}%`;
+    }
+
     function showSaveOverlay(blob, filename) {
         const url = URL.createObjectURL(blob);
         const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
@@ -677,19 +642,24 @@
         const overlay  = document.getElementById('save-overlay');
         const link     = document.getElementById('save-link');
         const msg      = document.getElementById('save-msg');
+        const progress = document.getElementById('convert-progress');
         const closeBtn = document.getElementById('save-close-btn');
 
+        // 변환 진행 UI 숨기고 저장 링크 표시
+        progress.classList.add('hidden');
+        link.classList.remove('hidden');
         link.href = url;
+
         if (isIOS) {
             link.removeAttribute('download');
             link.target = '_blank';
             link.textContent = '영상 열기';
-            msg.textContent = '녹화 완료!\n열기 후 공유 버튼 → 사진 앱에 저장';
+            msg.textContent = '완료! 열기 후 공유 버튼 → 사진 앱에 저장';
         } else {
             link.setAttribute('download', filename);
             link.target = '_self';
             link.textContent = '영상 저장하기';
-            msg.textContent = '녹화 완료!';
+            msg.textContent = '변환 완료!';
         }
 
         overlay.classList.remove('hidden');

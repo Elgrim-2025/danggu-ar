@@ -420,3 +420,7 @@ body {
 #save-msg { color:#fff; font-size:15px; white-space:pre-line; margin:0; }
 #save-link { background:#5b6cf2; color:#fff; padding:12px 28px; border-radius:10px; text-decoration:none; font-size:15px; font-weight:600; }
 #save-close-btn { background:none; border:1px solid rgba(255,255,255,0.2); color:rgba(255,255,255,0.6); padding:8px 20px; border-radius:8px; font-size:13px; cursor:pointer; }
+#convert-progress { width:100%; display:flex; flex-direction:column; gap:8px; align-items:center; }
+#convert-bar-wrap { width:100%; background:rgba(255,255,255,0.1); border-radius:4px; height:6px; overflow:hidden; }
+#convert-bar { height:100%; background:#5b6cf2; border-radius:4px; width:0%; transition:width 0.3s; }
+#convert-text { color:rgba(255,255,255,0.6); font-size:12px; }
