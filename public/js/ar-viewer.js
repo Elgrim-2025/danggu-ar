@@ -371,36 +371,48 @@
     let mediaRecorder = null, recordedChunks = [], recStream = null;
     let isRecording = false;
     let recAnimId = null;
-    let _ffmpeg = null;
+    let _ffmpegCore = null;  // @ffmpeg/core-st 직접 사용 (Worker 없음)
 
-    // ffmpeg.wasm 로드 (최초 1회, 이후 캐시)
+    // @ffmpeg/core-st를 메인 스레드에서 직접 로드 (cross-origin Worker 문제 완전 우회)
     async function loadFfmpeg() {
-        if (_ffmpeg) return _ffmpeg;
-        const [{ FFmpeg }, { toBlobURL, fetchFile }] = await Promise.all([
-            import('https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.10/dist/esm/index.js'),
-            import('https://cdn.jsdelivr.net/npm/@ffmpeg/util@0.12.1/dist/esm/index.js'),
-        ]);
-        const ffmpeg = new FFmpeg();
+        if (_ffmpegCore) return _ffmpegCore;
         const coreBase = 'https://cdn.jsdelivr.net/npm/@ffmpeg/core-st@0.12.6/dist/esm';
-        const ffBase   = 'https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.10/dist/esm';
-        // workerURL을 blob URL로 변환해야 cross-origin Worker 생성 차단 우회 가능
-        await ffmpeg.load({
-            coreURL:   await toBlobURL(`${coreBase}/ffmpeg-core.js`,  'text/javascript'),
-            wasmURL:   await toBlobURL(`${coreBase}/ffmpeg-core.wasm`, 'application/wasm'),
-            workerURL: await toBlobURL(`${ffBase}/worker.js`,          'text/javascript'),
+        // ESM dynamic import로 factory 함수 로드
+        const { default: createFFmpegCore } = await import(`${coreBase}/ffmpeg-core.js`);
+        // WASM 파일을 fetch해서 blob URL로 제공 (CORS/MIME 문제 우회)
+        const wasmResp = await fetch(`${coreBase}/ffmpeg-core.wasm`);
+        const wasmBuf  = await wasmResp.arrayBuffer();
+        const wasmURL  = URL.createObjectURL(new Blob([wasmBuf], { type: 'application/wasm' }));
+        _ffmpegCore = await createFFmpegCore({
+            locateFile: (path) => path.endsWith('.wasm') ? wasmURL : `${coreBase}/${path}`,
         });
-        _ffmpeg = { ffmpeg, fetchFile };
-        return _ffmpeg;
+        URL.revokeObjectURL(wasmURL);
+        return _ffmpegCore;
     }
 
     async function convertToMp4(webmBlob, onProgress) {
-        const { ffmpeg, fetchFile } = await loadFfmpeg();
-        ffmpeg.on('progress', ({ progress }) => onProgress(Math.min(99, Math.round(progress * 100))));
-        await ffmpeg.writeFile('input.webm', await fetchFile(webmBlob));
-        await ffmpeg.exec(['-i', 'input.webm', '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '23', '-c:a', 'aac', '-movflags', '+faststart', 'output.mp4']);
-        const data = await ffmpeg.readFile('output.mp4');
-        await ffmpeg.deleteFile('input.webm');
-        await ffmpeg.deleteFile('output.mp4');
+        onProgress(5);
+        const core = await loadFfmpeg();
+        onProgress(20);
+        // 입력 파일을 가상 FS에 기록
+        core.FS.writeFile('input.webm', new Uint8Array(await webmBlob.arrayBuffer()));
+        // ffmpeg 실행 (메인 스레드, Worker 없음)
+        try {
+            core.callMain([
+                '-i', 'input.webm',
+                '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '23',
+                '-c:a', 'aac',
+                '-movflags', '+faststart',
+                'output.mp4'
+            ]);
+        } catch (e) { /* callMain은 exit code를 throw하는 경우 있음 — 정상 */ }
+        onProgress(90);
+        const data = core.FS.readFile('output.mp4');
+        try { core.FS.unlink('input.webm'); } catch(e) {}
+        try { core.FS.unlink('output.mp4'); } catch(e) {}
+        // 다음 변환을 위해 core 재사용 불가 → 리셋
+        _ffmpegCore = null;
+        onProgress(100);
         return new Blob([data.buffer], { type: 'video/mp4' });
     }
 
