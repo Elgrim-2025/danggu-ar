@@ -425,17 +425,19 @@
     function startRecordingMediaRecorder(arCanvas) {
         if (typeof MediaRecorder === 'undefined') { console.warn('[Record] MediaRecorder 미지원'); return; }
         try {
-            // MP4 우선 시도 (iPhone Safari, Android Chrome 130+) → 변환 불필요
-            // 실패 시 WebM → ffmpeg으로 MP4 변환
-            const types = [
+            // iOS Safari: MP4 직접 녹화 (WebM 미지원, 변환 불필요)
+            // Android/기타: WebM 녹화 → ffmpeg MP4 변환 (Android fragmented MP4 = 3초 문제 방지)
+            const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+            const types = isIOS ? [
                 { mimeType: 'video/mp4;codecs=avc1,mp4a.40.2', ext: 'mp4' },
                 { mimeType: 'video/mp4;codecs=avc1',            ext: 'mp4' },
                 { mimeType: 'video/mp4',                        ext: 'mp4' },
-                { mimeType: 'video/webm;codecs=vp9,opus',       ext: 'webm' },
-                { mimeType: 'video/webm;codecs=vp8,opus',       ext: 'webm' },
-                { mimeType: 'video/webm',                       ext: 'webm' },
+            ] : [
+                { mimeType: 'video/webm;codecs=vp9,opus',  ext: 'webm' },
+                { mimeType: 'video/webm;codecs=vp8,opus',  ext: 'webm' },
+                { mimeType: 'video/webm',                  ext: 'webm' },
             ];
-            const recFormat = types.find(t => MediaRecorder.isTypeSupported(t.mimeType)) || { mimeType: '', ext: 'mp4' };
+            const recFormat = types.find(t => MediaRecorder.isTypeSupported(t.mimeType)) || { mimeType: '', ext: isIOS ? 'mp4' : 'webm' };
             const pr = window.devicePixelRatio || 1;
             const rawCw = Math.round(window.innerWidth * pr);
             const rawCh = Math.round(window.innerHeight * pr);
