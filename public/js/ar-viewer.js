@@ -412,8 +412,12 @@
         const { Muxer, ArrayBufferTarget } = await import('https://cdn.jsdelivr.net/npm/mp4-muxer@5/+esm');
 
         const pr = window.devicePixelRatio || 1;
-        const W = Math.round(window.innerWidth * pr);
-        const H = Math.round(window.innerHeight * pr);
+        // 최대 1280px 제한 (Galaxy 등 고DPR 기기 OOM 방지)
+        const rawW = Math.round(window.innerWidth * pr);
+        const rawH = Math.round(window.innerHeight * pr);
+        const scale = Math.min(1, 1280 / rawW);
+        const W = Math.floor(rawW * scale / 2) * 2;   // 짝수 강제 (H.264 요구사항)
+        const H = Math.floor(rawH * scale / 2) * 2;
         const mirror = facingMode === 'user';
 
         const comp = document.createElement('canvas');
@@ -499,7 +503,11 @@
                 muxer.finalize();
                 const blob = new Blob([target.buffer], { type: 'video/mp4' });
                 showSaveOverlay(blob, 'ar-recording-' + Date.now() + '.mp4');
-            } catch(e) { console.error('[Record] 저장 실패:', e); }
+            } catch(e) {
+                console.warn('[Record] WebCodecs 저장 실패, MediaRecorder 재시도:', e);
+                // WebCodecs 실패 시 MediaRecorder로 폴백 재녹화 불가 → 안내
+                alert('영상 처리에 실패했습니다. 다시 녹화해주세요.');
+            }
         };
     }
 
@@ -508,7 +516,11 @@
         try {
             recFormat = getRecFormat();
             const pr = window.devicePixelRatio || 1;
-            const cw = window.innerWidth * pr, ch = window.innerHeight * pr;
+            const rawCw = Math.round(window.innerWidth * pr);
+            const rawCh = Math.round(window.innerHeight * pr);
+            const sc = Math.min(1, 1280 / rawCw);
+            const cw = Math.floor(rawCw * sc / 2) * 2;
+            const ch = Math.floor(rawCh * sc / 2) * 2;
             const comp = document.createElement('canvas');
             comp.width = cw; comp.height = ch;
             const cctx = comp.getContext('2d', { alpha: false, desynchronized: true });
