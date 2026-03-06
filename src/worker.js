@@ -23,6 +23,11 @@ export default {
       return env.ASSETS.fetch(new Request(arUrl, request));
     }
 
+    if (path === '/manage') {
+      const manageUrl = new URL('/manage.html', request.url);
+      return env.ASSETS.fetch(new Request(manageUrl, request));
+    }
+
     if (path === '/' || path === '') {
       const indexUrl = new URL('/index.html', request.url);
       return env.ASSETS.fetch(new Request(indexUrl, request));
