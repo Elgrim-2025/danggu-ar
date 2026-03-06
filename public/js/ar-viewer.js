@@ -371,7 +371,6 @@
     let mediaRecorder = null, recordedChunks = [], recStream = null;
     let isRecording = false;
     let recFormat = null, recAnimId = null;
-    let recCleanupFn = null;
 
     function getRecFormat() {
         const types = [
@@ -388,127 +387,10 @@
         return { mimeType: '', ext: 'webm' };
     }
 
-    async function startRecording() {
+    function startRecording() {
         const arCanvas = document.querySelector('#canvas-container canvas');
         if (!videoBackground || !arCanvas) return;
-
-        // WebCodecs + mp4-muxer: moov atom이 앞에 오는 정상적인 MP4 생성
-        if (typeof VideoEncoder !== 'undefined') {
-            try {
-                await startRecordingWebCodecs(arCanvas);
-                return;
-            } catch(e) {
-                console.warn('[Record] WebCodecs 실패, MediaRecorder 폴백:', e);
-                isRecording = false;
-                recordBtn.classList.remove('recording');
-            }
-        }
-
-        // MediaRecorder 폴백 (구형 브라우저)
         startRecordingMediaRecorder(arCanvas);
-    }
-
-    async function startRecordingWebCodecs(arCanvas) {
-        const { Muxer, ArrayBufferTarget } = await import('https://cdn.jsdelivr.net/npm/mp4-muxer@5/+esm');
-
-        const pr = window.devicePixelRatio || 1;
-        // 최대 1280px 제한 (Galaxy 등 고DPR 기기 OOM 방지)
-        const rawW = Math.round(window.innerWidth * pr);
-        const rawH = Math.round(window.innerHeight * pr);
-        const scale = Math.min(1, 1280 / rawW);
-        const W = Math.floor(rawW * scale / 2) * 2;   // 짝수 강제 (H.264 요구사항)
-        const H = Math.floor(rawH * scale / 2) * 2;
-        const mirror = facingMode === 'user';
-
-        const comp = document.createElement('canvas');
-        comp.width = W; comp.height = H;
-        const cctx = comp.getContext('2d', { alpha: false });
-
-        // 오디오 설정 (녹화 버튼 클릭 = user gesture)
-        if (mediaVideoEl && !videoAudioCtx) {
-            try {
-                videoAudioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 44100 });
-                await videoAudioCtx.resume();
-                const src = videoAudioCtx.createMediaElementSource(mediaVideoEl);
-                videoAudioDest = videoAudioCtx.createMediaStreamDestination();
-                src.connect(videoAudioCtx.destination);
-                src.connect(videoAudioDest);
-            } catch(e) { videoAudioCtx = null; videoAudioDest = null; }
-        }
-
-        const hasAudio = !!videoAudioDest;
-        const target = new ArrayBufferTarget();
-        const muxer = new Muxer({
-            target,
-            video: { codec: 'avc', width: W, height: H },
-            ...(hasAudio ? { audio: { codec: 'aac', numberOfChannels: 2, sampleRate: 44100 } } : {}),
-            fastStart: 'in-memory',
-        });
-
-        const videoEncoder = new VideoEncoder({
-            output: (chunk, meta) => muxer.addVideoChunk(chunk, meta),
-            error: e => console.error('[VideoEncoder]', e),
-        });
-        videoEncoder.configure({ codec: 'avc1.42001f', width: W, height: H, bitrate: 5_000_000, framerate: 30 });
-
-        // AudioEncoder (MediaStreamTrackProcessor 지원 브라우저)
-        let audioEncoder = null;
-        if (hasAudio && typeof AudioEncoder !== 'undefined' && typeof MediaStreamTrackProcessor !== 'undefined') {
-            try {
-                audioEncoder = new AudioEncoder({
-                    output: (chunk, meta) => muxer.addAudioChunk(chunk, meta),
-                    error: e => console.error('[AudioEncoder]', e),
-                });
-                audioEncoder.configure({ codec: 'mp4a.40.2', numberOfChannels: 2, sampleRate: 44100, bitrate: 128_000 });
-
-                const audioTrack = videoAudioDest.stream.getAudioTracks()[0];
-                if (audioTrack) {
-                    const proc = new MediaStreamTrackProcessor({ track: audioTrack });
-                    const reader = proc.readable.getReader();
-                    (async () => {
-                        while (isRecording) {
-                            const { done, value } = await reader.read();
-                            if (done || !isRecording) { reader.cancel(); break; }
-                            if (audioEncoder.state === 'configured') audioEncoder.encode(value);
-                            value.close();
-                        }
-                    })();
-                }
-            } catch(e) { audioEncoder = null; }
-        }
-
-        isRecording = true;
-        recordBtn.classList.add('recording');
-        let startTime = null, lastKeyFrameTime = -Infinity;
-
-        function captureFrame(ts) {
-            if (!isRecording) return;
-            if (startTime === null) startTime = ts;
-            const t = Math.round((ts - startTime) * 1000);
-            drawVideoCover(cctx, videoBackground, W, H, mirror);
-            cctx.drawImage(arCanvas, 0, 0, arCanvas.width, arCanvas.height, 0, 0, W, H);
-            const isKeyFrame = t - lastKeyFrameTime >= 2_000_000;
-            if (isKeyFrame) lastKeyFrameTime = t;
-            const frame = new VideoFrame(comp, { timestamp: t });
-            if (videoEncoder.state === 'configured') videoEncoder.encode(frame, { keyFrame: isKeyFrame });
-            frame.close();
-            recAnimId = requestAnimationFrame(captureFrame);
-        }
-        recAnimId = requestAnimationFrame(captureFrame);
-
-        recCleanupFn = async () => {
-            try {
-                await videoEncoder.flush();
-                if (audioEncoder) await audioEncoder.flush();
-                muxer.finalize();
-                const blob = new Blob([target.buffer], { type: 'video/mp4' });
-                showSaveOverlay(blob, 'ar-recording-' + Date.now() + '.mp4');
-            } catch(e) {
-                console.warn('[Record] WebCodecs 저장 실패, MediaRecorder 재시도:', e);
-                // WebCodecs 실패 시 MediaRecorder로 폴백 재녹화 불가 → 안내
-                alert('영상 처리에 실패했습니다. 다시 녹화해주세요.');
-            }
-        };
     }
 
     function startRecordingMediaRecorder(arCanvas) {
@@ -583,14 +465,11 @@
         }
     }
 
-    async function stopRecording() {
+    function stopRecording() {
         isRecording = false;
         cancelAnimationFrame(recAnimId);
         recordBtn.classList.remove('recording');
-        if (recCleanupFn) {
-            await recCleanupFn();
-            recCleanupFn = null;
-        } else if (mediaRecorder && mediaRecorder.state === 'recording') {
+        if (mediaRecorder && mediaRecorder.state === 'recording') {
             mediaRecorder.stop();
         }
     }
