@@ -341,10 +341,33 @@
         }
         renderer.render(scene, camera);
         ctx.drawImage(renderer.domElement, 0, 0, W, H);
-        const link = document.createElement('a');
-        link.download = 'ar-capture.png';
-        link.href = canvas.toDataURL('image/png');
-        link.click();
+
+        const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+        const filename = 'ar-capture-' + Date.now() + '.png';
+
+        if (isIOS) {
+            canvas.toBlob(async (blob) => {
+                const shareFile = new File([blob], filename, { type: 'image/png' });
+                if (navigator.canShare && navigator.canShare({ files: [shareFile] })) {
+                    try {
+                        await navigator.share({ files: [shareFile], title: filename });
+                    } catch (err) {
+                        if (err.name !== 'AbortError') {
+                            window.open(canvas.toDataURL('image/png'), '_blank');
+                        }
+                    }
+                } else {
+                    window.open(canvas.toDataURL('image/png'), '_blank');
+                }
+            }, 'image/png');
+        } else {
+            const link = document.createElement('a');
+            link.download = filename;
+            link.href = canvas.toDataURL('image/png');
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
     }
 
     function drawVideoCover(ctx, video, w, h, mirror) {
@@ -373,6 +396,8 @@
     let recAnimId = null;
     let _ffmpegCore = null;  // @ffmpeg/core-st 직접 사용 (Worker 없음)
 
+    let _ffmpegLog = '';
+
     // ffmpeg-core.js 자체 호스팅 + WASM을 미리 fetch해서 직접 전달 (Emscripten이 WASM fetch하지 못하는 문제 우회)
     async function loadFfmpeg() {
         if (_ffmpegCore) return _ffmpegCore;
@@ -381,7 +406,12 @@
             fetch('https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/esm/ffmpeg-core.wasm'),
         ]);
         const wasmBinary = await wasmResp.arrayBuffer();
-        _ffmpegCore = await createFFmpegCore({ wasmBinary });
+        _ffmpegLog = '';
+        _ffmpegCore = await createFFmpegCore({
+            wasmBinary,
+            print:    (msg) => { _ffmpegLog += msg + '\n'; },
+            printErr: (msg) => { _ffmpegLog += msg + '\n'; },
+        });
         return _ffmpegCore;
     }
 
@@ -389,23 +419,45 @@
         onProgress(5);
         const core = await loadFfmpeg();
         onProgress(20);
-        // 입력 파일을 가상 FS에 기록
-        core.FS.writeFile('input.webm', new Uint8Array(await webmBlob.arrayBuffer()));
-        // ffmpeg 실행 (메인 스레드, Worker 없음)
+
+        // 절대 경로 사용 (Emscripten 작업 디렉토리 의존 방지)
+        core.FS.writeFile('/input.webm', new Uint8Array(await webmBlob.arrayBuffer()));
+
+        let exitCode = 0;
         try {
             core.callMain([
-                '-i', 'input.webm',
+                '-i', '/input.webm',
                 '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '23',
                 '-c:a', 'aac',
                 '-movflags', '+faststart',
-                'output.mp4'
+                '/output.mp4'
             ]);
-        } catch (e) { /* callMain은 exit code를 throw하는 경우 있음 — 정상 */ }
+        } catch(e) {
+            // Emscripten은 main() 종료 시 ExitStatus를 throw함 — status 0은 성공
+            exitCode = (e && typeof e.status === 'number') ? e.status : -1;
+            if (exitCode !== 0) {
+                try { core.FS.unlink('/input.webm'); } catch(_) {}
+                _ffmpegCore = null;
+                // 로그의 마지막 3줄만 표시 (화면 공간 제한)
+                const logTail = _ffmpegLog.trim().split('\n').slice(-3).join(' | ');
+                throw new Error(`exit ${exitCode}: ${logTail}`);
+            }
+        }
+
         onProgress(90);
-        const data = core.FS.readFile('output.mp4');
-        try { core.FS.unlink('input.webm'); } catch(e) {}
-        try { core.FS.unlink('output.mp4'); } catch(e) {}
-        // 다음 변환을 위해 core 재사용 불가 → 리셋
+
+        // 출력 파일 존재 확인 후 읽기
+        let data;
+        try {
+            data = core.FS.readFile('/output.mp4');
+        } catch(e) {
+            try { core.FS.unlink('/input.webm'); } catch(_) {}
+            _ffmpegCore = null;
+            throw new Error('output.mp4 생성 실패 — ffmpeg 변환이 완료되지 않음');
+        }
+
+        try { core.FS.unlink('/input.webm'); } catch(_) {}
+        try { core.FS.unlink('/output.mp4'); } catch(_) {}
         _ffmpegCore = null;
         onProgress(100);
         return new Blob([data.buffer], { type: 'video/mp4' });
@@ -420,19 +472,17 @@
     function startRecordingMediaRecorder(arCanvas) {
         if (typeof MediaRecorder === 'undefined') { console.warn('[Record] MediaRecorder 미지원'); return; }
         try {
-            // iOS Safari: MP4 직접 녹화 (WebM 미지원, 변환 불필요)
-            // Android/기타: WebM 녹화 → ffmpeg MP4 변환 (Android fragmented MP4 = 3초 문제 방지)
-            const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
-            const types = isIOS ? [
+            // MP4를 모든 플랫폼에서 우선 시도 (Android Chrome 94+, iOS Safari 모두 지원)
+            // MP4 직접 녹화 성공 시 ffmpeg 변환 불필요, WebM 3초 문제 없음
+            const allTypes = [
                 { mimeType: 'video/mp4;codecs=avc1,mp4a.40.2', ext: 'mp4' },
                 { mimeType: 'video/mp4;codecs=avc1',            ext: 'mp4' },
                 { mimeType: 'video/mp4',                        ext: 'mp4' },
-            ] : [
-                { mimeType: 'video/webm;codecs=vp9,opus',  ext: 'webm' },
-                { mimeType: 'video/webm;codecs=vp8,opus',  ext: 'webm' },
-                { mimeType: 'video/webm',                  ext: 'webm' },
+                { mimeType: 'video/webm;codecs=vp9,opus',       ext: 'webm' },
+                { mimeType: 'video/webm;codecs=vp8,opus',       ext: 'webm' },
+                { mimeType: 'video/webm',                       ext: 'webm' },
             ];
-            const recFormat = types.find(t => MediaRecorder.isTypeSupported(t.mimeType)) || { mimeType: '', ext: isIOS ? 'mp4' : 'webm' };
+            const recFormat = allTypes.find(t => MediaRecorder.isTypeSupported(t.mimeType)) || { mimeType: '', ext: 'mp4' };
             const pr = window.devicePixelRatio || 1;
             const rawCw = Math.round(window.innerWidth * pr);
             const rawCh = Math.round(window.innerHeight * pr);
@@ -491,7 +541,7 @@
                 const filename = 'ar-recording-' + Date.now() + '.mp4';
 
                 if (recFormat.ext === 'mp4') {
-                    // iPhone Safari / Android Chrome 130+ → 이미 MP4, 변환 불필요
+                    // MP4 직접 녹화 → 변환 불필요 (iOS Safari, Android Chrome 모두 해당)
                     showSaveOverlay(recBlob, filename);
                 } else {
                     // WebM → ffmpeg으로 MP4 변환
@@ -512,7 +562,8 @@
                     }
                 }
             };
-            mediaRecorder.start(100);
+            // timeslice 없이 start() → stop() 시 완전한 파일 1개 생성 (3초 문제 해결)
+            mediaRecorder.start();
             isRecording = true;
             recordBtn.classList.add('recording');
             drawFrame();
@@ -681,15 +732,42 @@
         link.href = url;
 
         if (isIOS) {
-            link.removeAttribute('download');
-            link.target = '_blank';
-            link.textContent = '영상 열기';
-            msg.textContent = '완료! 열기 후 공유 버튼 → 사진 앱에 저장';
+            // Web Share API 지원 시 (iOS Safari 15+): 공유 시트 → "사진 앱에 저장" 바로 선택 가능
+            const shareFile = new File([blob], filename, { type: 'video/mp4' });
+            const canWebShare = navigator.canShare && navigator.canShare({ files: [shareFile] });
+
+            if (canWebShare) {
+                link.removeAttribute('download');
+                link.removeAttribute('href');
+                link.removeAttribute('target');
+                link.textContent = '사진 앱에 저장';
+                msg.textContent = '완료! 버튼을 눌러 사진 앱에 저장하세요.';
+                link.onclick = async (e) => {
+                    e.preventDefault();
+                    try {
+                        await navigator.share({ files: [shareFile], title: filename });
+                    } catch (err) {
+                        if (err.name !== 'AbortError') {
+                            // 공유 실패 시 새 탭으로 열기 fallback
+                            window.open(url, '_blank');
+                        }
+                    }
+                };
+            } else {
+                // 구형 iOS fallback: 새 탭에서 열기
+                link.removeAttribute('download');
+                link.href = url;
+                link.target = '_blank';
+                link.onclick = null;
+                link.textContent = '영상 열기';
+                msg.textContent = '완료! 열기 후 공유 버튼 → 사진 앱에 저장';
+            }
         } else {
             link.setAttribute('download', filename);
             link.target = '_self';
+            link.onclick = null;
             link.textContent = '영상 저장하기';
-            msg.textContent = '변환 완료!';
+            msg.textContent = '녹화 완료! 아래 버튼을 눌러 저장하세요.';
         }
 
         overlay.classList.remove('hidden');

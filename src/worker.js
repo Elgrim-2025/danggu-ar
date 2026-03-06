@@ -57,6 +57,7 @@ async function handleUpload(request, env) {
         return jsonResponse({ error: `파일 ${i + 1}: 파일 크기는 50MB 이하여야 합니다.` }, 400);
       }
 
+
       const fileId = generateId();
       const ext = getExtension(file.type);
       await env.AR_BUCKET.put(`${fileId}.${ext}`, file.stream(), {
