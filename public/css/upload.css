@@ -521,3 +521,22 @@ h2 {
     background: #fff;
     padding: 10px;
 }
+
+/* ─── Footer ─────────────────────────────────────── */
+
+footer {
+    text-align: center;
+    margin-top: 40px;
+    padding-top: 20px;
+    border-top: 1px solid var(--border);
+}
+
+#manage-link {
+    color: var(--text-dim);
+    font-size: 12px;
+    text-decoration: none;
+    letter-spacing: 0.04em;
+    transition: color 0.2s;
+}
+
+#manage-link:hover { color: var(--text-sub); }
