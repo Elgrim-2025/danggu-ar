@@ -376,9 +376,10 @@
     // ffmpeg.wasm 로드 (최초 1회, 이후 캐시)
     async function loadFfmpeg() {
         if (_ffmpeg) return _ffmpeg;
+        // esm.sh: ESM 모듈을 브라우저에서 안정적으로 로드
         const [{ FFmpeg }, { toBlobURL, fetchFile }] = await Promise.all([
-            import('https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.10/dist/esm/index.js'),
-            import('https://cdn.jsdelivr.net/npm/@ffmpeg/util@0.12.1/dist/esm/index.js'),
+            import('https://esm.sh/@ffmpeg/ffmpeg@0.12.10'),
+            import('https://esm.sh/@ffmpeg/util@0.12.1'),
         ]);
         const ffmpeg = new FFmpeg();
         const base = 'https://cdn.jsdelivr.net/npm/@ffmpeg/core-st@0.12.6/dist/esm';
@@ -478,8 +479,14 @@
                     const mp4Blob = await convertToMp4(webmBlob, updateConvertProgress);
                     showSaveOverlay(mp4Blob, 'ar-recording-' + Date.now() + '.mp4');
                 } catch(e) {
-                    console.warn('[Record] MP4 변환 실패, WebM으로 저장:', e);
-                    showSaveOverlay(webmBlob, 'ar-recording-' + Date.now() + '.webm');
+                    console.error('[Record] MP4 변환 실패:', e);
+                    // 오류 메시지를 화면에 표시
+                    const msg = document.getElementById('save-msg');
+                    const prog = document.getElementById('convert-progress');
+                    const link = document.getElementById('save-link');
+                    if (msg) msg.textContent = '변환 오류: ' + (e?.message || String(e)).slice(0, 80);
+                    if (prog) prog.classList.add('hidden');
+                    if (link) { link.classList.remove('hidden'); link.setAttribute('download', 'ar.webm'); link.textContent = 'WebM으로 저장 (임시)'; }
                 }
             };
             mediaRecorder.start(100);
