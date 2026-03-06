@@ -370,7 +370,7 @@
 
     let mediaRecorder = null, recordedChunks = [], recStream = null;
     let isRecording = false;
-    let recFormat = null, recAnimId = null;
+    let recFormat = null, recAnimId = null, recCleanupFn = null;
 
     function getRecFormat() {
         const types = [
@@ -387,10 +387,83 @@
         return { mimeType: '', ext: 'webm' };
     }
 
-    function startRecording() {
+    async function startRecording() {
         const arCanvas = document.querySelector('#canvas-container canvas');
         if (!videoBackground || !arCanvas) return;
+
+        // WebCodecs: moov를 앞에 배치한 정상 MP4 생성 (공유 가능)
+        if (typeof VideoEncoder !== 'undefined') {
+            try {
+                await startRecordingWebCodecs(arCanvas);
+                return;
+            } catch(e) {
+                console.warn('[Record] WebCodecs 실패, MediaRecorder 폴백:', e);
+                isRecording = false;
+                recAnimId && cancelAnimationFrame(recAnimId);
+                recordBtn.classList.remove('recording');
+            }
+        }
         startRecordingMediaRecorder(arCanvas);
+    }
+
+    async function startRecordingWebCodecs(arCanvas) {
+        const { Muxer, ArrayBufferTarget } = await import('https://cdn.jsdelivr.net/npm/mp4-muxer@5/+esm');
+
+        const pr = window.devicePixelRatio || 1;
+        const rawW = Math.round(window.innerWidth * pr);
+        const rawH = Math.round(window.innerHeight * pr);
+        const sc = Math.min(1, 1280 / rawW);
+        const W = Math.floor(rawW * sc / 2) * 2;
+        const H = Math.floor(rawH * sc / 2) * 2;
+
+        // 지원 여부 사전 확인
+        const videoConfig = { codec: 'avc1.42001f', width: W, height: H, bitrate: 4_000_000, framerate: 30 };
+        const support = await VideoEncoder.isConfigSupported(videoConfig);
+        if (!support.supported) throw new Error('H.264 미지원');
+
+        const mirror = facingMode === 'user';
+        const comp = document.createElement('canvas');
+        comp.width = W; comp.height = H;
+        const cctx = comp.getContext('2d', { alpha: false });
+
+        const target = new ArrayBufferTarget();
+        const muxer = new Muxer({ target, video: { codec: 'avc', width: W, height: H }, fastStart: 'in-memory' });
+
+        let encodeError = null;
+        const videoEncoder = new VideoEncoder({
+            output: (chunk, meta) => muxer.addVideoChunk(chunk, meta),
+            error: e => { encodeError = e; },
+        });
+        videoEncoder.configure(videoConfig);
+
+        isRecording = true;
+        recordBtn.classList.add('recording');
+        let startTime = null, frameCount = 0;
+
+        function captureFrame(ts) {
+            if (!isRecording) return;
+            if (startTime === null) startTime = ts;
+            const t = Math.round((ts - startTime) * 1000);
+            drawVideoCover(cctx, videoBackground, W, H, mirror);
+            cctx.drawImage(arCanvas, 0, 0, arCanvas.width, arCanvas.height, 0, 0, W, H);
+            const isKeyFrame = frameCount % 60 === 0;
+            frameCount++;
+            if (videoEncoder.state === 'configured') {
+                const frame = new VideoFrame(comp, { timestamp: t });
+                videoEncoder.encode(frame, { keyFrame: isKeyFrame });
+                frame.close();
+            }
+            recAnimId = requestAnimationFrame(captureFrame);
+        }
+        recAnimId = requestAnimationFrame(captureFrame);
+
+        recCleanupFn = async () => {
+            if (encodeError) throw encodeError;
+            await videoEncoder.flush();
+            muxer.finalize();
+            const blob = new Blob([target.buffer], { type: 'video/mp4' });
+            showSaveOverlay(blob, 'ar-recording-' + Date.now() + '.mp4');
+        };
     }
 
     function startRecordingMediaRecorder(arCanvas) {
@@ -465,11 +538,20 @@
         }
     }
 
-    function stopRecording() {
+    async function stopRecording() {
         isRecording = false;
         cancelAnimationFrame(recAnimId);
         recordBtn.classList.remove('recording');
-        if (mediaRecorder && mediaRecorder.state === 'recording') {
+        if (recCleanupFn) {
+            const fn = recCleanupFn;
+            recCleanupFn = null;
+            try {
+                await fn();
+            } catch(e) {
+                console.warn('[Record] WebCodecs 저장 실패, MediaRecorder 결과 없음:', e);
+                alert('영상 처리 실패. 다시 녹화해주세요.');
+            }
+        } else if (mediaRecorder && mediaRecorder.state === 'recording') {
             mediaRecorder.stop();
         }
     }
