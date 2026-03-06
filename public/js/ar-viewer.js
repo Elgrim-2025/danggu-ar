@@ -376,16 +376,18 @@
     // ffmpeg.wasm 로드 (최초 1회, 이후 캐시)
     async function loadFfmpeg() {
         if (_ffmpeg) return _ffmpeg;
-        // esm.sh: ESM 모듈을 브라우저에서 안정적으로 로드
         const [{ FFmpeg }, { toBlobURL, fetchFile }] = await Promise.all([
-            import('https://esm.sh/@ffmpeg/ffmpeg@0.12.10'),
-            import('https://esm.sh/@ffmpeg/util@0.12.1'),
+            import('https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.10/dist/esm/index.js'),
+            import('https://cdn.jsdelivr.net/npm/@ffmpeg/util@0.12.1/dist/esm/index.js'),
         ]);
         const ffmpeg = new FFmpeg();
-        const base = 'https://cdn.jsdelivr.net/npm/@ffmpeg/core-st@0.12.6/dist/esm';
+        const coreBase = 'https://cdn.jsdelivr.net/npm/@ffmpeg/core-st@0.12.6/dist/esm';
+        const ffBase   = 'https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.10/dist/esm';
+        // workerURL을 blob URL로 변환해야 cross-origin Worker 생성 차단 우회 가능
         await ffmpeg.load({
-            coreURL: await toBlobURL(`${base}/ffmpeg-core.js`, 'text/javascript'),
-            wasmURL: await toBlobURL(`${base}/ffmpeg-core.wasm`, 'application/wasm'),
+            coreURL:   await toBlobURL(`${coreBase}/ffmpeg-core.js`,  'text/javascript'),
+            wasmURL:   await toBlobURL(`${coreBase}/ffmpeg-core.wasm`, 'application/wasm'),
+            workerURL: await toBlobURL(`${ffBase}/worker.js`,          'text/javascript'),
         });
         _ffmpeg = { ffmpeg, fetchFile };
         return _ffmpeg;
