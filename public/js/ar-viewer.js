@@ -373,20 +373,15 @@
     let recAnimId = null;
     let _ffmpegCore = null;  // @ffmpeg/core-st 직접 사용 (Worker 없음)
 
-    // @ffmpeg/core-st를 메인 스레드에서 직접 로드 (cross-origin Worker 문제 완전 우회)
+    // ffmpeg-core.js는 자체 호스팅 (cross-origin import 차단 우회)
+    // WASM은 CDN fetch (import 아님, fetch는 CORS 허용)
     async function loadFfmpeg() {
         if (_ffmpegCore) return _ffmpegCore;
-        const coreBase = 'https://cdn.jsdelivr.net/npm/@ffmpeg/core-st@0.12.6/dist/esm';
-        // ESM dynamic import로 factory 함수 로드
-        const { default: createFFmpegCore } = await import(`${coreBase}/ffmpeg-core.js`);
-        // WASM 파일을 fetch해서 blob URL로 제공 (CORS/MIME 문제 우회)
-        const wasmResp = await fetch(`${coreBase}/ffmpeg-core.wasm`);
-        const wasmBuf  = await wasmResp.arrayBuffer();
-        const wasmURL  = URL.createObjectURL(new Blob([wasmBuf], { type: 'application/wasm' }));
+        const { default: createFFmpegCore } = await import('/js/ffmpeg-core.js');
+        const wasmURL = 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/esm/ffmpeg-core.wasm';
         _ffmpegCore = await createFFmpegCore({
-            locateFile: (path) => path.endsWith('.wasm') ? wasmURL : `${coreBase}/${path}`,
+            locateFile: (path) => path.endsWith('.wasm') ? wasmURL : path,
         });
-        URL.revokeObjectURL(wasmURL);
         return _ffmpegCore;
     }
 
