@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AR 관리자</title>
+    <link rel="stylesheet" href="/css/manage.css">
+</head>
+<body>
+    <div id="app">
+        <!-- 로그인 -->
+        <div id="login-section">
+            <h1>AR 관리자</h1>
+            <input type="password" id="secret-input" placeholder="비밀번호 입력" autocomplete="off">
+            <button id="login-btn">로그인</button>
+            <p id="login-error" class="hidden">비밀번호가 틀렸습니다.</p>
+        </div>
+
+        <!-- 목록 -->
+        <div id="list-section" class="hidden">
+            <header>
+                <h1>업로드 목록</h1>
+                <button id="logout-btn">로그아웃</button>
+            </header>
+            <div id="group-list"></div>
+            <p id="empty-msg" class="hidden">업로드된 파일이 없습니다.</p>
+        </div>
+    </div>
+
+    <script src="/js/manage.js"></script>
+</body>
+</html>

@@ -371,6 +371,7 @@
     let mediaRecorder = null, recordedChunks = [], recStream = null;
     let isRecording = false;
     let recFormat = null, recAnimId = null;
+    let recCleanupFn = null;
 
     function getRecFormat() {
         const types = [
@@ -384,23 +385,132 @@
         for (const t of types) {
             if (MediaRecorder.isTypeSupported(t.mimeType)) return t;
         }
-        return { mimeType: '', ext: 'mp4' };
+        return { mimeType: '', ext: 'webm' };
     }
 
     async function startRecording() {
         const arCanvas = document.querySelector('#canvas-container canvas');
         if (!videoBackground || !arCanvas) return;
-        if (typeof MediaRecorder === 'undefined') {
-            console.warn('[Record] MediaRecorder 미지원');
-            return;
+
+        // WebCodecs + mp4-muxer: moov atom이 앞에 오는 정상적인 MP4 생성
+        if (typeof VideoEncoder !== 'undefined') {
+            try {
+                await startRecordingWebCodecs(arCanvas);
+                return;
+            } catch(e) {
+                console.warn('[Record] WebCodecs 실패, MediaRecorder 폴백:', e);
+                isRecording = false;
+                recordBtn.classList.remove('recording');
+            }
         }
+
+        // MediaRecorder 폴백 (구형 브라우저)
+        startRecordingMediaRecorder(arCanvas);
+    }
+
+    async function startRecordingWebCodecs(arCanvas) {
+        const { Muxer, ArrayBufferTarget } = await import('https://cdn.jsdelivr.net/npm/mp4-muxer@5/+esm');
+
+        const pr = window.devicePixelRatio || 1;
+        const W = Math.round(window.innerWidth * pr);
+        const H = Math.round(window.innerHeight * pr);
+        const mirror = facingMode === 'user';
+
+        const comp = document.createElement('canvas');
+        comp.width = W; comp.height = H;
+        const cctx = comp.getContext('2d', { alpha: false });
+
+        // 오디오 설정 (녹화 버튼 클릭 = user gesture)
+        if (mediaVideoEl && !videoAudioCtx) {
+            try {
+                videoAudioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 44100 });
+                await videoAudioCtx.resume();
+                const src = videoAudioCtx.createMediaElementSource(mediaVideoEl);
+                videoAudioDest = videoAudioCtx.createMediaStreamDestination();
+                src.connect(videoAudioCtx.destination);
+                src.connect(videoAudioDest);
+            } catch(e) { videoAudioCtx = null; videoAudioDest = null; }
+        }
+
+        const hasAudio = !!videoAudioDest;
+        const target = new ArrayBufferTarget();
+        const muxer = new Muxer({
+            target,
+            video: { codec: 'avc', width: W, height: H },
+            ...(hasAudio ? { audio: { codec: 'aac', numberOfChannels: 2, sampleRate: 44100 } } : {}),
+            fastStart: 'in-memory',
+        });
+
+        const videoEncoder = new VideoEncoder({
+            output: (chunk, meta) => muxer.addVideoChunk(chunk, meta),
+            error: e => console.error('[VideoEncoder]', e),
+        });
+        videoEncoder.configure({ codec: 'avc1.42001f', width: W, height: H, bitrate: 5_000_000, framerate: 30 });
+
+        // AudioEncoder (MediaStreamTrackProcessor 지원 브라우저)
+        let audioEncoder = null;
+        if (hasAudio && typeof AudioEncoder !== 'undefined' && typeof MediaStreamTrackProcessor !== 'undefined') {
+            try {
+                audioEncoder = new AudioEncoder({
+                    output: (chunk, meta) => muxer.addAudioChunk(chunk, meta),
+                    error: e => console.error('[AudioEncoder]', e),
+                });
+                audioEncoder.configure({ codec: 'mp4a.40.2', numberOfChannels: 2, sampleRate: 44100, bitrate: 128_000 });
+
+                const audioTrack = videoAudioDest.stream.getAudioTracks()[0];
+                if (audioTrack) {
+                    const proc = new MediaStreamTrackProcessor({ track: audioTrack });
+                    const reader = proc.readable.getReader();
+                    (async () => {
+                        while (isRecording) {
+                            const { done, value } = await reader.read();
+                            if (done || !isRecording) { reader.cancel(); break; }
+                            if (audioEncoder.state === 'configured') audioEncoder.encode(value);
+                            value.close();
+                        }
+                    })();
+                }
+            } catch(e) { audioEncoder = null; }
+        }
+
+        isRecording = true;
+        recordBtn.classList.add('recording');
+        let startTime = null, lastKeyFrameTime = -Infinity;
+
+        function captureFrame(ts) {
+            if (!isRecording) return;
+            if (startTime === null) startTime = ts;
+            const t = Math.round((ts - startTime) * 1000);
+            drawVideoCover(cctx, videoBackground, W, H, mirror);
+            cctx.drawImage(arCanvas, 0, 0, arCanvas.width, arCanvas.height, 0, 0, W, H);
+            const isKeyFrame = t - lastKeyFrameTime >= 2_000_000;
+            if (isKeyFrame) lastKeyFrameTime = t;
+            const frame = new VideoFrame(comp, { timestamp: t });
+            if (videoEncoder.state === 'configured') videoEncoder.encode(frame, { keyFrame: isKeyFrame });
+            frame.close();
+            recAnimId = requestAnimationFrame(captureFrame);
+        }
+        recAnimId = requestAnimationFrame(captureFrame);
+
+        recCleanupFn = async () => {
+            try {
+                await videoEncoder.flush();
+                if (audioEncoder) await audioEncoder.flush();
+                muxer.finalize();
+                const blob = new Blob([target.buffer], { type: 'video/mp4' });
+                showSaveOverlay(blob, 'ar-recording-' + Date.now() + '.mp4');
+            } catch(e) { console.error('[Record] 저장 실패:', e); }
+        };
+    }
+
+    function startRecordingMediaRecorder(arCanvas) {
+        if (typeof MediaRecorder === 'undefined') { console.warn('[Record] MediaRecorder 미지원'); return; }
         try {
             recFormat = getRecFormat();
             const pr = window.devicePixelRatio || 1;
             const cw = window.innerWidth * pr, ch = window.innerHeight * pr;
             const comp = document.createElement('canvas');
-            comp.width = cw;
-            comp.height = ch;
+            comp.width = cw; comp.height = ch;
             const cctx = comp.getContext('2d', { alpha: false, desynchronized: true });
             const mirror = facingMode === 'user';
 
@@ -413,31 +523,24 @@
 
             recStream = comp.captureStream(30);
 
-            // 오디오 캡처: 1차 captureStream → 2차 Web Audio API
             if (mediaVideoEl) {
                 let audioAdded = false;
-
-                // 1차: captureStream (Chrome/Android - 비디오 unmuted 상태)
                 if (mediaVideoEl.captureStream) {
                     try {
-                        const audioTracks = mediaVideoEl.captureStream().getAudioTracks();
-                        audioTracks.forEach(t => recStream.addTrack(t));
-                        audioAdded = audioTracks.length > 0;
+                        const tracks = mediaVideoEl.captureStream().getAudioTracks();
+                        tracks.forEach(t => recStream.addTrack(t));
+                        audioAdded = tracks.length > 0;
                     } catch(e) {}
                 }
-
-                // 2차: Web Audio API (iOS/Safari, captureStream 미지원 또는 오디오 트랙 없을 때)
                 if (!audioAdded && !videoAudioCtx) {
                     try {
                         videoAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
-                        await videoAudioCtx.resume();
+                        videoAudioCtx.resume();
                         const src = videoAudioCtx.createMediaElementSource(mediaVideoEl);
                         videoAudioDest = videoAudioCtx.createMediaStreamDestination();
                         src.connect(videoAudioCtx.destination);
                         src.connect(videoAudioDest);
-                    } catch(e) {
-                        videoAudioCtx = null; videoAudioDest = null;
-                    }
+                    } catch(e) { videoAudioCtx = null; videoAudioDest = null; }
                 }
                 if (!audioAdded && videoAudioDest) {
                     videoAudioDest.stream.getAudioTracks().forEach(t => recStream.addTrack(t));
@@ -455,11 +558,7 @@
                 cancelAnimationFrame(recAnimId);
                 recordBtn.classList.remove('recording');
                 const blob = new Blob(recordedChunks, { type: recFormat.ext === 'mp4' ? 'video/mp4' : 'video/webm' });
-                const a = document.createElement('a');
-                a.download = 'ar-recording-' + Date.now() + '.' + recFormat.ext;
-                a.href = URL.createObjectURL(blob);
-                a.click();
-                URL.revokeObjectURL(a.href);
+                showSaveOverlay(blob, 'ar-recording-' + Date.now() + '.' + recFormat.ext);
             };
             mediaRecorder.start(100);
             isRecording = true;
@@ -472,11 +571,16 @@
         }
     }
 
-    function stopRecording() {
+    async function stopRecording() {
         isRecording = false;
-        if (mediaRecorder && mediaRecorder.state === 'recording') mediaRecorder.stop();
         cancelAnimationFrame(recAnimId);
         recordBtn.classList.remove('recording');
+        if (recCleanupFn) {
+            await recCleanupFn();
+            recCleanupFn = null;
+        } else if (mediaRecorder && mediaRecorder.state === 'recording') {
+            mediaRecorder.stop();
+        }
     }
 
     // 사진 버튼: 탭 = 사진 저장
@@ -590,6 +694,36 @@
         requestAnimationFrame(animate);
         if (mediaTexture && mediaVideoEl) mediaTexture.needsUpdate = true;
         renderer.render(scene, camera);
+    }
+
+    // ─── 영상 저장 오버레이 ───────────────────────────────────────
+    function showSaveOverlay(blob, filename) {
+        const url = URL.createObjectURL(blob);
+        const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+
+        const overlay  = document.getElementById('save-overlay');
+        const link     = document.getElementById('save-link');
+        const msg      = document.getElementById('save-msg');
+        const closeBtn = document.getElementById('save-close-btn');
+
+        link.href = url;
+        if (isIOS) {
+            link.removeAttribute('download');
+            link.target = '_blank';
+            link.textContent = '영상 열기';
+            msg.textContent = '녹화 완료!\n열기 후 공유 버튼 → 사진 앱에 저장';
+        } else {
+            link.setAttribute('download', filename);
+            link.target = '_self';
+            link.textContent = '영상 저장하기';
+            msg.textContent = '녹화 완료!';
+        }
+
+        overlay.classList.remove('hidden');
+        closeBtn.onclick = () => {
+            overlay.classList.add('hidden');
+            URL.revokeObjectURL(url);
+        };
     }
 
     // ─── 헬퍼 ────────────────────────────────────────────────────

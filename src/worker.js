@@ -6,6 +6,10 @@ export default {
     if (request.method === 'OPTIONS') return handleCORS();
 
     if (path === '/api/upload' && request.method === 'POST') return handleUpload(request, env);
+    if (path === '/api/list' && request.method === 'GET') return handleList(request, env);
+
+    const deleteMatch = path.match(/^\/api\/delete\/([a-z0-9]+)$/);
+    if (deleteMatch && request.method === 'DELETE') return handleDelete(request, env, deleteMatch[1]);
 
     const fileMatch = path.match(/^\/api\/file\/([a-z0-9]+)$/);
     if (fileMatch && request.method === 'GET') return handleGetFile(env, fileMatch[1]);
@@ -55,9 +59,7 @@ async function handleUpload(request, env) {
       });
 
       // Store per-file lookup entry for /api/file/ endpoint
-      await env.AR_META.put(`file:${fileId}`, JSON.stringify({ ext, type: file.type }), {
-        expirationTtl: 30 * 24 * 60 * 60
-      });
+      await env.AR_META.put(`file:${fileId}`, JSON.stringify({ ext, type: file.type }));
 
       const isVideo = file.type.startsWith('video/');
       files.push({
@@ -77,9 +79,7 @@ async function handleUpload(request, env) {
 
     const rawTitle = (formData.get('title') || '').toString().trim().slice(0, 50);
     const metadata = { id: groupId, title: rawTitle || null, files, createdAt: Date.now() };
-    await env.AR_META.put(groupId, JSON.stringify(metadata), {
-      expirationTtl: 30 * 24 * 60 * 60
-    });
+    await env.AR_META.put(groupId, JSON.stringify(metadata));
 
     return jsonResponse({ id: groupId, url: `/ar/${groupId}`, meta: metadata }, 201);
   } catch (err) {
@@ -112,6 +112,47 @@ async function handleGetMeta(env, id) {
   return jsonResponse(JSON.parse(metaStr));
 }
 
+// ─── List Handler ────────────────────────────────────────────────
+
+async function handleList(request, env) {
+  const secret = request.headers.get('X-Delete-Secret');
+  if (secret !== env.DELETE_SECRET) return jsonResponse({ error: '인증 실패' }, 403);
+
+  const groups = [];
+  let cursor = undefined;
+  do {
+    const result = await env.AR_META.list({ cursor, limit: 1000 });
+    for (const key of result.keys) {
+      if (key.name.startsWith('file:')) continue;
+      const metaStr = await env.AR_META.get(key.name);
+      if (metaStr) groups.push(JSON.parse(metaStr));
+    }
+    cursor = result.list_complete ? undefined : result.cursor;
+  } while (cursor);
+
+  groups.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+  return jsonResponse({ groups });
+}
+
+// ─── Delete Handler ──────────────────────────────────────────────
+
+async function handleDelete(request, env, groupId) {
+  const secret = request.headers.get('X-Delete-Secret');
+  if (secret !== env.DELETE_SECRET) return jsonResponse({ error: '인증 실패' }, 403);
+
+  const metaStr = await env.AR_META.get(groupId);
+  if (!metaStr) return jsonResponse({ error: '찾을 수 없습니다.' }, 404);
+
+  const meta = JSON.parse(metaStr);
+  for (const file of meta.files) {
+    await env.AR_BUCKET.delete(`${file.id}.${file.ext}`);
+    await env.AR_META.delete(`file:${file.id}`);
+  }
+  await env.AR_META.delete(groupId);
+
+  return jsonResponse({ ok: true, deleted: groupId });
+}
+
 // ─── Helpers ─────────────────────────────────────────────────────
 
 function generateId() {
@@ -138,7 +179,7 @@ function handleCORS() {
   return new Response(null, {
     headers: {
       'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+      'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
       'Access-Control-Allow-Headers': 'Content-Type',
       'Access-Control-Max-Age': '86400'
     }

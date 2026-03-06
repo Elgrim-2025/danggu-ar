@@ -1,0 +1,148 @@
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+    background: #0f0f0f;
+    color: #e0e0e0;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    min-height: 100vh;
+}
+
+#app { max-width: 700px; margin: 0 auto; padding: 24px 16px; }
+
+/* Login */
+#login-section {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 14px;
+    margin-top: 100px;
+}
+
+#login-section h1 { font-size: 1.6rem; }
+
+#secret-input {
+    width: 280px;
+    padding: 10px 14px;
+    border: 1px solid #333;
+    border-radius: 8px;
+    background: #1a1a1a;
+    color: #e0e0e0;
+    font-size: 1rem;
+    outline: none;
+}
+#secret-input:focus { border-color: #555; }
+
+#login-btn {
+    width: 280px;
+    padding: 10px;
+    background: #2563eb;
+    color: #fff;
+    border: none;
+    border-radius: 8px;
+    font-size: 1rem;
+    cursor: pointer;
+}
+#login-btn:hover { background: #1d4ed8; }
+
+#login-error { color: #f87171; font-size: 0.9rem; }
+
+/* Header */
+header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+    padding-bottom: 14px;
+    border-bottom: 1px solid #222;
+}
+header h1 { font-size: 1.4rem; }
+
+#logout-btn {
+    background: none;
+    border: 1px solid #444;
+    color: #aaa;
+    padding: 6px 12px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 0.85rem;
+}
+#logout-btn:hover { border-color: #666; color: #ccc; }
+
+/* Cards */
+.card {
+    background: #1a1a1a;
+    border: 1px solid #2a2a2a;
+    border-radius: 10px;
+    padding: 16px;
+    margin-bottom: 12px;
+    transition: opacity 0.3s, transform 0.3s;
+}
+.card.removing { opacity: 0; transform: translateX(20px); }
+
+.card-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 12px;
+    margin-bottom: 12px;
+}
+
+.card-title { font-size: 1rem; font-weight: 600; margin-bottom: 4px; }
+.card-date { font-size: 0.8rem; color: #666; margin-bottom: 8px; }
+.card-files { display: flex; flex-wrap: wrap; gap: 6px; }
+
+.file-tag {
+    background: #252525;
+    border: 1px solid #333;
+    border-radius: 4px;
+    padding: 3px 8px;
+    font-size: 0.78rem;
+    color: #aaa;
+}
+
+.del-btn {
+    flex-shrink: 0;
+    background: #7f1d1d;
+    color: #fca5a5;
+    border: none;
+    border-radius: 6px;
+    padding: 6px 14px;
+    cursor: pointer;
+    font-size: 0.85rem;
+    white-space: nowrap;
+}
+.del-btn:hover { background: #991b1b; }
+.del-btn:disabled { opacity: 0.5; cursor: default; }
+
+.card-link {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+.card-link input {
+    flex: 1;
+    background: #111;
+    border: 1px solid #2a2a2a;
+    border-radius: 6px;
+    color: #888;
+    padding: 6px 10px;
+    font-size: 0.8rem;
+    outline: none;
+}
+
+.copy-btn, .open-btn {
+    background: #1e293b;
+    border: 1px solid #334155;
+    color: #94a3b8;
+    border-radius: 6px;
+    padding: 6px 12px;
+    font-size: 0.8rem;
+    cursor: pointer;
+    text-decoration: none;
+    white-space: nowrap;
+}
+.copy-btn:hover, .open-btn:hover { background: #273548; color: #cbd5e1; }
+
+#empty-msg { text-align: center; color: #555; margin-top: 60px; }
+
+.hidden { display: none !important; }
