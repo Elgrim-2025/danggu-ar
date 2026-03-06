@@ -425,13 +425,17 @@
     function startRecordingMediaRecorder(arCanvas) {
         if (typeof MediaRecorder === 'undefined') { console.warn('[Record] MediaRecorder 미지원'); return; }
         try {
-            // WebM으로 녹화 (오디오 포함, fragmented MP4 3초 문제 없음 → ffmpeg으로 MP4 변환)
+            // MP4 우선 시도 (iPhone Safari, Android Chrome 130+) → 변환 불필요
+            // 실패 시 WebM → ffmpeg으로 MP4 변환
             const types = [
-                { mimeType: 'video/webm;codecs=vp9,opus', ext: 'webm' },
-                { mimeType: 'video/webm;codecs=vp8,opus', ext: 'webm' },
-                { mimeType: 'video/webm', ext: 'webm' },
+                { mimeType: 'video/mp4;codecs=avc1,mp4a.40.2', ext: 'mp4' },
+                { mimeType: 'video/mp4;codecs=avc1',            ext: 'mp4' },
+                { mimeType: 'video/mp4',                        ext: 'mp4' },
+                { mimeType: 'video/webm;codecs=vp9,opus',       ext: 'webm' },
+                { mimeType: 'video/webm;codecs=vp8,opus',       ext: 'webm' },
+                { mimeType: 'video/webm',                       ext: 'webm' },
             ];
-            const recFormat = types.find(t => MediaRecorder.isTypeSupported(t.mimeType)) || { mimeType: '', ext: 'webm' };
+            const recFormat = types.find(t => MediaRecorder.isTypeSupported(t.mimeType)) || { mimeType: '', ext: 'mp4' };
             const pr = window.devicePixelRatio || 1;
             const rawCw = Math.round(window.innerWidth * pr);
             const rawCh = Math.round(window.innerHeight * pr);
@@ -486,21 +490,29 @@
                 isRecording = false;
                 cancelAnimationFrame(recAnimId);
                 recordBtn.classList.remove('recording');
-                const webmBlob = new Blob(recordedChunks, { type: 'video/webm' });
-                // 변환 중 오버레이 표시
-                showConvertingOverlay();
-                try {
-                    const mp4Blob = await convertToMp4(webmBlob, updateConvertProgress);
-                    showSaveOverlay(mp4Blob, 'ar-recording-' + Date.now() + '.mp4');
-                } catch(e) {
-                    console.error('[Record] MP4 변환 실패:', e);
-                    // 오류 메시지를 화면에 표시
-                    const msg = document.getElementById('save-msg');
-                    const prog = document.getElementById('convert-progress');
-                    const link = document.getElementById('save-link');
-                    if (msg) msg.textContent = '변환 오류: ' + (e?.message || String(e)).slice(0, 80);
-                    if (prog) prog.classList.add('hidden');
-                    if (link) { link.classList.remove('hidden'); link.setAttribute('download', 'ar.webm'); link.textContent = 'WebM으로 저장 (임시)'; }
+                const recBlob = new Blob(recordedChunks, { type: recFormat.mimeType || 'video/mp4' });
+                const filename = 'ar-recording-' + Date.now() + '.mp4';
+
+                if (recFormat.ext === 'mp4') {
+                    // iPhone Safari / Android Chrome 130+ → 이미 MP4, 변환 불필요
+                    showSaveOverlay(recBlob, filename);
+                } else {
+                    // WebM → ffmpeg으로 MP4 변환
+                    showConvertingOverlay();
+                    try {
+                        const mp4Blob = await convertToMp4(recBlob, updateConvertProgress);
+                        showSaveOverlay(mp4Blob, filename);
+                    } catch(e) {
+                        console.error('[Record] MP4 변환 실패:', e);
+                        const overlay = document.getElementById('save-overlay');
+                        const msg     = document.getElementById('save-msg');
+                        const prog    = document.getElementById('convert-progress');
+                        const link    = document.getElementById('save-link');
+                        if (msg)  msg.textContent = '변환 오류: ' + (e?.message || String(e)).slice(0, 80);
+                        if (prog) prog.classList.add('hidden');
+                        if (link) { link.href = URL.createObjectURL(recBlob); link.classList.remove('hidden'); link.setAttribute('download', 'ar.webm'); link.textContent = 'WebM으로 저장 (임시)'; }
+                        if (overlay) overlay.classList.remove('hidden');
+                    }
                 }
             };
             mediaRecorder.start(100);
