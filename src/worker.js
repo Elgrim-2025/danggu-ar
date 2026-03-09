@@ -53,8 +53,8 @@ async function handleUpload(request, env) {
       if (!allowedTypes.includes(file.type)) {
         return jsonResponse({ error: `파일 ${i + 1}: 지원하지 않는 파일 형식입니다. (jpg, png, mp4, webm)` }, 400);
       }
-      if (file.size > 50 * 1024 * 1024) {
-        return jsonResponse({ error: `파일 ${i + 1}: 파일 크기는 50MB 이하여야 합니다.` }, 400);
+      if (file.size > 100 * 1024 * 1024) {
+        return jsonResponse({ error: `파일 ${i + 1}: 파일 크기는 100MB 이하여야 합니다.` }, 400);
       }
 
 

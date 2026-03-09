@@ -40,7 +40,7 @@
         div.innerHTML = `
             <div class="slot-dropzone" id="dz-${idx}">
                 <p>파일을 여기에 끌어다 놓거나<br>아래 버튼으로 선택하세요</p>
-                <small>JPG &middot; PNG &middot; MP4 &middot; WEBM &middot; 50MB 이하</small>
+                <small>JPG &middot; PNG &middot; MP4 &middot; WEBM &middot; 100MB 이하</small>
                 <input type="file" id="fi-${idx}" accept="image/jpeg,image/png,video/mp4,video/webm" hidden>
                 <button class="select-btn" data-idx="${idx}">파일 선택</button>
             </div>
@@ -141,7 +141,7 @@
     function selectFile(idx, file) {
         const allowed = ['image/jpeg', 'image/png', 'video/mp4', 'video/webm'];
         if (!allowed.includes(file.type)) { alert('지원하지 않는 파일 형식입니다.\n(jpg, png, mp4, webm만 가능)'); return; }
-        if (file.size > 50 * 1024 * 1024) { alert('파일 크기는 50MB 이하여야 합니다.'); return; }
+        if (file.size > 100 * 1024 * 1024) { alert('파일 크기는 100MB 이하여야 합니다.'); return; }
 
         const slot = slots[idx];
         if (slot.mediaEl && slot.mediaEl.tagName === 'VIDEO') {
