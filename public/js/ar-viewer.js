@@ -1,6 +1,29 @@
 (function () {
     'use strict';
 
+    /**
+     * @typedef {Object} ArFile
+     * @property {string} id          - R2 파일 ID
+     * @property {string} type        - MIME 타입 (e.g. 'video/mp4')
+     * @property {string} ext         - 확장자 (e.g. 'mp4')
+     * @property {string} color       - 크로마키 색상 hex (e.g. '#00ff00')
+     * @property {number} similarity  - 크로마키 허용범위 (0~1)
+     * @property {number} smoothness  - 크로마키 경계 부드러움 (0~1)
+     * @property {boolean} audio      - 오디오 포함 여부
+     */
+
+    /**
+     * @typedef {Object} GestureState
+     * @property {boolean} isDragging
+     * @property {boolean} isPinching
+     * @property {number} dragStartX
+     * @property {number} dragStartY
+     * @property {number} objStartX
+     * @property {number} objStartY
+     * @property {number} pinchStartDist
+     * @property {number} pinchStartScale
+     */
+
     // ─── DOM ─────────────────────────────────────────────────────
     const errorScreen      = document.getElementById('error-screen');
     const errorMessage     = document.getElementById('error-message');
@@ -31,8 +54,9 @@
     }
 
     // ─── State ───────────────────────────────────────────────────
-    let arFiles = [];           // 파일 배열
-    let currentFileIdx = 0;     // 현재 표시 중인 파일 인덱스
+    /** @type {ArFile[]} */
+    let arFiles = [];
+    let currentFileIdx = 0;
     let scene, camera, renderer;
     let hudMesh = null;
     let hudBaseScale = 1.0;
@@ -41,7 +65,7 @@
     let videoAudioCtx  = null;  // 녹화 시 생성, 파일 전환 시 닫힘
     let videoAudioDest = null;
 
-    const gesture = {
+const gesture = {
         isDragging: false, isPinching: false,
         dragStartX: 0, dragStartY: 0,
         objStartX: 0, objStartY: 0,
@@ -139,6 +163,7 @@
     }
 
     // ─── 파일 로드 ───────────────────────────────────────────────
+    /** @param {number} idx */
     async function loadFile(idx) {
         // 이전 리소스 정리
         if (mediaVideoEl) { mediaVideoEl.pause(); mediaVideoEl = null; }
@@ -244,6 +269,11 @@
         });
     }
 
+    /**
+     * @param {THREE.Texture} texture
+     * @param {number} aspect
+     * @param {ArFile} file
+     */
     function createHudMesh(texture, aspect, file) {
         const material = createChromaMaterial(texture, file.color, file.similarity, file.smoothness);
         const planeHeight = 1.8;  // 첫 등장 시 큰 크기 (Cloudflare 배포용)
@@ -256,6 +286,13 @@
     }
 
     // ─── 크로마키 셰이더 ─────────────────────────────────────────
+    /**
+     * @param {THREE.Texture} texture
+     * @param {string} colorHex
+     * @param {number} sim
+     * @param {number} smooth
+     * @returns {THREE.ShaderMaterial}
+     */
     function createChromaMaterial(texture, colorHex, sim, smooth) {
         const color = new THREE.Color(colorHex);
         return new THREE.ShaderMaterial({
@@ -390,6 +427,8 @@
             ctx.drawImage(video, sx, sy, sw, sh, 0, 0, w, h);
         }
     }
+
+    let animId = null;  // requestAnimationFrame ID (취소용)
 
     let mediaRecorder = null, recordedChunks = [], recStream = null;
     let isRecording = false;
@@ -571,6 +610,7 @@
             console.error('[Record] 녹화 실패:', e);
             isRecording = false;
             recordBtn.classList.remove('recording');
+            if (recStream) { recStream.getTracks().forEach(t => t.stop()); recStream = null; }
         }
     }
 
@@ -691,7 +731,7 @@
 
     // ─── 렌더 루프 ───────────────────────────────────────────────
     function animate() {
-        requestAnimationFrame(animate);
+        animId = requestAnimationFrame(animate);
         if (mediaTexture && mediaVideoEl) mediaTexture.needsUpdate = true;
         renderer.render(scene, camera);
     }
@@ -776,6 +816,18 @@
             URL.revokeObjectURL(url);
         };
     }
+
+    // ─── 페이지 종료 시 리소스 정리 ──────────────────────────────
+    function cleanup() {
+        cancelAnimationFrame(animId);
+        if (recStream) { recStream.getTracks().forEach(t => t.stop()); recStream = null; }
+        if (cameraStream) { cameraStream.getTracks().forEach(t => t.stop()); }
+        if (mediaVideoEl) { mediaVideoEl.pause(); mediaVideoEl = null; }
+        if (mediaTexture) { mediaTexture.dispose(); mediaTexture = null; }
+        if (hudMesh) { hudMesh.geometry.dispose(); hudMesh.material.dispose(); }
+        if (renderer) { renderer.dispose(); }
+    }
+    window.addEventListener('beforeunload', cleanup);
 
     // ─── 헬퍼 ────────────────────────────────────────────────────
     function showError(msg) {
