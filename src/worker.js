@@ -57,14 +57,12 @@ async function handleUpload(request, env) {
         return jsonResponse({ error: `파일 ${i + 1}: 파일 크기는 100MB 이하여야 합니다.` }, 400);
       }
 
-
       const fileId = generateId();
       const ext = getExtension(file.type);
       await env.AR_BUCKET.put(`${fileId}.${ext}`, file.stream(), {
         httpMetadata: { contentType: file.type }
       });
 
-      // Store per-file lookup entry for /api/file/ endpoint
       await env.AR_META.put(`file:${fileId}`, JSON.stringify({ ext, type: file.type }));
 
       const isVideo = file.type.startsWith('video/');
@@ -96,26 +94,36 @@ async function handleUpload(request, env) {
 // ─── File Serving Handler ────────────────────────────────────────
 
 async function handleGetFile(env, id) {
-  const fileMetaStr = await env.AR_META.get(`file:${id}`);
-  if (!fileMetaStr) return jsonResponse({ error: '파일을 찾을 수 없습니다.' }, 404);
+  try {
+    const fileMetaStr = await env.AR_META.get(`file:${id}`);
+    // KV TTL 만료 시 fileMetaStr === null → 404
+    if (!fileMetaStr) return jsonResponse({ error: '파일을 찾을 수 없습니다.' }, 404);
 
-  const fileMeta = JSON.parse(fileMetaStr);
-  const object = await env.AR_BUCKET.get(`${id}.${fileMeta.ext}`);
-  if (!object) return jsonResponse({ error: '파일을 찾을 수 없습니다.' }, 404);
+    const fileMeta = JSON.parse(fileMetaStr);
+    const object = await env.AR_BUCKET.get(`${id}.${fileMeta.ext}`);
+    if (!object) return jsonResponse({ error: '파일을 찾을 수 없습니다.' }, 404);
 
-  const headers = new Headers();
-  headers.set('Content-Type', fileMeta.type);
-  headers.set('Cache-Control', 'public, max-age=86400');
-  headers.set('Access-Control-Allow-Origin', '*');
-  return new Response(object.body, { headers });
+    const headers = new Headers();
+    headers.set('Content-Type', fileMeta.type);
+    headers.set('Cache-Control', 'public, max-age=86400');
+    headers.set('Access-Control-Allow-Origin', '*');
+    return new Response(object.body, { headers });
+  } catch (err) {
+    return jsonResponse({ error: '파일 조회 실패' }, 500);
+  }
 }
 
 // ─── Metadata Handler ────────────────────────────────────────────
 
 async function handleGetMeta(env, id) {
-  const metaStr = await env.AR_META.get(id);
-  if (!metaStr) return jsonResponse({ error: '메타데이터를 찾을 수 없습니다.' }, 404);
-  return jsonResponse(JSON.parse(metaStr));
+  try {
+    const metaStr = await env.AR_META.get(id);
+    if (!metaStr) return jsonResponse({ error: '콘텐츠를 찾을 수 없습니다.' }, 404);
+
+    return jsonResponse(JSON.parse(metaStr));
+  } catch (err) {
+    return jsonResponse({ error: '메타데이터 조회 실패' }, 500);
+  }
 }
 
 // ─── List Handler ────────────────────────────────────────────────
@@ -127,20 +135,26 @@ async function handleList(request, env) {
   const secret = request.headers.get('X-Delete-Secret');
   if (!await verifySecret(secret, env.DELETE_SECRET)) return jsonResponse({ error: '인증 실패' }, 403);
 
-  const groups = [];
-  let cursor = undefined;
-  do {
-    const result = await env.AR_META.list({ cursor, limit: 1000 });
-    for (const key of result.keys) {
-      if (key.name.startsWith('file:')) continue;
-      const metaStr = await env.AR_META.get(key.name);
-      if (metaStr) groups.push(JSON.parse(metaStr));
-    }
-    cursor = result.list_complete ? undefined : result.cursor;
-  } while (cursor);
+  try {
+    const groups = [];
+    let cursor = undefined;
+    do {
+      const result = await env.AR_META.list({ cursor, limit: 1000 });
+      for (const key of result.keys) {
+        if (key.name.startsWith('file:') || key.name.startsWith('rl:')) continue;
+        try {
+          const metaStr = await env.AR_META.get(key.name);
+          if (metaStr) groups.push(JSON.parse(metaStr));
+        } catch (_) { /* 개별 항목 파싱 실패 시 건너뜀 */ }
+      }
+      cursor = result.list_complete ? undefined : result.cursor;
+    } while (cursor);
 
-  groups.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
-  return jsonResponse({ groups });
+    groups.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+    return jsonResponse({ groups });
+  } catch (err) {
+    return jsonResponse({ error: '목록 조회 실패' }, 500);
+  }
 }
 
 // ─── Delete Handler ──────────────────────────────────────────────
@@ -152,17 +166,31 @@ async function handleDelete(request, env, groupId) {
   const secret = request.headers.get('X-Delete-Secret');
   if (!await verifySecret(secret, env.DELETE_SECRET)) return jsonResponse({ error: '인증 실패' }, 403);
 
-  const metaStr = await env.AR_META.get(groupId);
-  if (!metaStr) return jsonResponse({ error: '찾을 수 없습니다.' }, 404);
+  try {
+    const metaStr = await env.AR_META.get(groupId);
+    if (!metaStr) return jsonResponse({ error: '찾을 수 없습니다.' }, 404);
 
-  const meta = JSON.parse(metaStr);
-  for (const file of meta.files) {
-    await env.AR_BUCKET.delete(`${file.id}.${file.ext}`);
-    await env.AR_META.delete(`file:${file.id}`);
+    const meta = JSON.parse(metaStr);
+    await deleteGroup(env, meta);
+    return jsonResponse({ ok: true, deleted: groupId });
+  } catch (err) {
+    return jsonResponse({ error: '삭제 실패: ' + err.message }, 500);
   }
-  await env.AR_META.delete(groupId);
+}
 
-  return jsonResponse({ ok: true, deleted: groupId });
+// ─── Group Delete Helper ─────────────────────────────────────────
+
+/**
+ * 그룹에 속한 R2 파일 + KV 항목을 모두 삭제 (handleDelete/만료 공용)
+ * @param {any} env
+ * @param {{ id: string, files: Array<{id:string, ext:string}> }} meta
+ */
+async function deleteGroup(env, meta) {
+  await Promise.all(meta.files.flatMap(file => [
+    env.AR_BUCKET.delete(`${file.id}.${file.ext}`),
+    env.AR_META.delete(`file:${file.id}`),
+  ]));
+  await env.AR_META.delete(meta.id);
 }
 
 // ─── Auth Helpers ────────────────────────────────────────────────
