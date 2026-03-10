@@ -340,6 +340,29 @@ body {
     50%       { box-shadow: 0 0 0 8px rgba(255,53,53,0); }
 }
 
+/* 영상 재생/정지 버튼 — 우상단 */
+#play-btn {
+    position: absolute;
+    top: 16px;
+    right: 16px;
+    z-index: 10;
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    background: var(--btn-bg);
+    backdrop-filter: blur(18px);
+    -webkit-backdrop-filter: blur(18px);
+    border: 1px solid var(--btn-border);
+    color: rgba(255,255,255,0.8);
+    font-size: 14px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: transform 0.1s;
+}
+#play-btn:active { transform: scale(0.88); }
+
 /* Adjust button + panel — hidden */
 #adjust-toggle-btn { display: none !important; }
 

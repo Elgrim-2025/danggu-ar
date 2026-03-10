@@ -24,6 +24,7 @@
     const videoBackground  = document.getElementById('video-background');
     const instruction      = document.getElementById('instruction');
     const fileSwitchBtns   = document.getElementById('file-switch-btns');
+    const playBtn          = document.getElementById('play-btn');
     const adjustToggleBtn  = document.getElementById('adjust-toggle-btn');
     const colorAdjustPanel = document.getElementById('color-adjust-panel');
     const panelCloseBtn    = document.getElementById('panel-close-btn');
@@ -315,10 +316,17 @@
             await video.play();
             mediaVideoEl = video;
             setOverlaySize(video.videoWidth, video.videoHeight);
+
+            // 재생/정지 버튼 — 비디오일 때만 표시
+            playBtn.classList.remove('hidden');
+            playBtn.textContent = '⏸';
+            video.addEventListener('play',  () => { playBtn.textContent = '⏸'; });
+            video.addEventListener('pause', () => { playBtn.textContent = '▶'; });
         } else {
             const img = await loadImage(fileUrl);
             setOverlaySize(img.naturalWidth, img.naturalHeight);
             uploadTexture(img);
+            playBtn.classList.add('hidden');
         }
 
         adjustColor.value      = file.color;
@@ -676,6 +684,12 @@
             mediaRecorder.stop();
         }
     }
+
+    playBtn.addEventListener('click', () => {
+        if (!mediaVideoEl) return;
+        if (mediaVideoEl.paused) mediaVideoEl.play();
+        else mediaVideoEl.pause();
+    });
 
     captureBtn.addEventListener('click', () => doCapture());
     recordBtn.addEventListener('click', () => {
