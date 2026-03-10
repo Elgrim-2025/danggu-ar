@@ -504,7 +504,7 @@
         if (_ffmpegCore) return _ffmpegCore;
         const [{ default: createFFmpegCore }, wasmResp] = await Promise.all([
             import('/js/ffmpeg-core.js'),
-            fetch('https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/esm/ffmpeg-core.wasm'),
+            fetch('/wasm/ffmpeg-core.wasm'),
         ]);
         const wasmBinary = await wasmResp.arrayBuffer();
         _ffmpegLog = '';
