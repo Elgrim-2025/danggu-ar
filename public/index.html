@@ -7,6 +7,17 @@
     <link rel="stylesheet" href="/css/upload.css">
 </head>
 <body>
+    <!-- 접근 잠금 오버레이 -->
+    <div id="upload-login">
+        <div class="upload-login-box">
+            <h2>AR 크로마키</h2>
+            <p>사용하려면 비밀번호를 입력하세요.</p>
+            <input type="password" id="upload-secret-input" placeholder="비밀번호" autocomplete="off">
+            <button id="upload-login-btn">확인</button>
+            <p id="upload-login-error" class="hidden">비밀번호가 틀렸습니다.</p>
+        </div>
+    </div>
+
     <div id="app">
         <header>
             <h1>AR 크로마키</h1>

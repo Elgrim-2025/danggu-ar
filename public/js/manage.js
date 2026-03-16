@@ -7,9 +7,7 @@ const logoutBtn = document.getElementById('logout-btn');
 const groupList = document.getElementById('group-list');
 const emptyMsg = document.getElementById('empty-msg');
 
-let secret = sessionStorage.getItem('ar_secret') || '';
-
-if (secret) tryLoad();
+let secret = '';
 
 loginBtn.addEventListener('click', () => {
     secret = secretInput.value.trim();
@@ -39,7 +37,6 @@ async function tryLoad() {
         loginError.classList.remove('hidden');
         return;
     }
-    sessionStorage.setItem('ar_secret', secret);
     loginSection.classList.add('hidden');
     listSection.classList.remove('hidden');
 

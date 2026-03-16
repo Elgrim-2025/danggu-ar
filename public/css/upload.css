@@ -19,6 +19,68 @@
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
 
+/* ─── 업로드 접근 잠금 오버레이 ─────────────────────────────── */
+#upload-login {
+    position: fixed;
+    inset: 0;
+    z-index: 999;
+    background: var(--bg);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+#upload-login.hidden { display: none; }
+
+.upload-login-box {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 14px;
+    width: 100%;
+    max-width: 320px;
+    padding: 0 20px;
+}
+.upload-login-box h2 {
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: var(--text);
+    margin-bottom: 4px;
+}
+.upload-login-box p {
+    font-size: 0.88rem;
+    color: var(--text-sub);
+}
+.upload-login-box input[type="password"] {
+    width: 100%;
+    padding: 11px 14px;
+    background: var(--surface);
+    border: 1px solid var(--border-hi);
+    border-radius: var(--radius-md);
+    color: var(--text);
+    font-size: 1rem;
+    outline: none;
+    text-align: center;
+    letter-spacing: 0.1em;
+}
+.upload-login-box input[type="password"]:focus {
+    border-color: var(--accent);
+}
+.upload-login-box button {
+    width: 100%;
+    padding: 11px;
+    background: var(--accent);
+    color: #fff;
+    border: none;
+    border-radius: var(--radius-md);
+    font-size: 1rem;
+    font-weight: 600;
+    cursor: pointer;
+}
+.upload-login-box button:hover { opacity: 0.9; }
+.upload-login-box button:disabled { opacity: 0.5; cursor: default; }
+#upload-login-error { color: #f87171; font-size: 0.85rem; }
+/* ────────────────────────────────────────────────────────────── */
+
 body {
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Helvetica Neue', sans-serif;
     background: var(--bg);

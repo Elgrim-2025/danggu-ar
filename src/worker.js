@@ -6,6 +6,7 @@ export default {
     if (request.method === 'OPTIONS') return handleCORS(path);
 
     if (path === '/api/upload' && request.method === 'POST') return handleUpload(request, env);
+    if (path === '/api/auth' && request.method === 'POST') return handleAuth(request, env);
     if (path === '/api/list' && request.method === 'GET') return handleList(request, env);
 
     // 25MB 초과로 ASSETS에 못 넣는 파일 → R2에서 직접 서빙
@@ -56,10 +57,32 @@ async function handleWasm(env) {
   }
 }
 
+// ─── Upload Auth Handler ─────────────────────────────────────────
+
+async function handleAuth(request, env) {
+  try {
+    const body = await request.json();
+    const password = (body && body.password) ? String(body.password) : '';
+    if (!password) return jsonResponse({ error: '비밀번호를 입력하세요.' }, 400);
+    if (!await verifySecret(password, env.UPLOAD_SECRET)) {
+      return jsonResponse({ error: '비밀번호가 틀렸습니다.' }, 403);
+    }
+    return jsonResponse({ ok: true });
+  } catch (_) {
+    return jsonResponse({ error: '잘못된 요청입니다.' }, 400);
+  }
+}
+
 // ─── Upload Handler ──────────────────────────────────────────────
 
 async function handleUpload(request, env) {
   try {
+    // 업로드 인증 확인
+    const uploadAuth = request.headers.get('X-Upload-Auth');
+    if (!await verifySecret(uploadAuth, env.UPLOAD_SECRET)) {
+      return jsonResponse({ error: '인증이 필요합니다.' }, 401);
+    }
+
     // 업로드 전용 레이트 리밋: IP당 10분에 5회
     const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
     if (!await checkUploadRateLimit(env, ip)) {
