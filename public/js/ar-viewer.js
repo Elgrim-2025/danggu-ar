@@ -349,9 +349,9 @@
 
             // 재생/정지 버튼 — 비디오일 때만 표시
             playBtn.classList.remove('hidden');
-            playBtn.textContent = '⏸';
-            video.addEventListener('play',  () => { playBtn.textContent = '⏸'; });
-            video.addEventListener('pause', () => { playBtn.textContent = '▶'; });
+            playBtn.textContent = '⏸\uFE0E';
+            video.addEventListener('play',  () => { playBtn.textContent = '⏸\uFE0E'; });
+            video.addEventListener('pause', () => { playBtn.textContent = '▶\uFE0E'; });
         } else {
             const img = await loadImage(fileUrl);
             setOverlaySize(img.naturalWidth, img.naturalHeight);
