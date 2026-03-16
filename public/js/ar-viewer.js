@@ -160,13 +160,25 @@
         }
     });
 
+    // ─── 로딩 진행률 ─────────────────────────────────────────────
+    const loadingBar  = document.getElementById('loading-bar');
+    function setLoadingProgress(pct, text) {
+        if (loadingBar) loadingBar.style.width = pct + '%';
+        if (text) loadingText.textContent = text;
+    }
+
     // ─── AR 초기화 ───────────────────────────────────────────────
     async function initAR() {
+        setLoadingProgress(10, '그래픽 초기화 중...');
         initWebGL();
+        setLoadingProgress(30, '파일 불러오는 중...');
         await loadFile(0);
+        setLoadingProgress(80, '컨트롤 설정 중...');
         setupFileSwitchBtns();
         setupGestures();
         setupAdjustPanel();
+        setLoadingProgress(100, '완료!');
+        await new Promise(r => setTimeout(r, 280));
 
         loadingScreen.classList.add('hidden');
         arContainer.classList.remove('hidden');
