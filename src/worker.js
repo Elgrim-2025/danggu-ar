@@ -22,20 +22,11 @@ export default {
     if (metaMatch && request.method === 'GET') return handleGetMeta(env, metaMatch[1]);
 
     const arMatch = path.match(/^\/ar\/([a-z0-9]+)$/);
-    if (arMatch) {
-      const arUrl = new URL('/ar.html', request.url);
-      return env.ASSETS.fetch(new Request(arUrl, request));
-    }
+    if (arMatch) return serveHtml(env, request, '/ar.html');
 
-    if (path === '/manage') {
-      const manageUrl = new URL('/manage.html', request.url);
-      return env.ASSETS.fetch(new Request(manageUrl, request));
-    }
+    if (path === '/manage') return serveHtml(env, request, '/manage.html');
 
-    if (path === '/' || path === '') {
-      const indexUrl = new URL('/index.html', request.url);
-      return env.ASSETS.fetch(new Request(indexUrl, request));
-    }
+    if (path === '/' || path === '') return serveHtml(env, request, '/index.html');
 
     return env.ASSETS.fetch(request);
   }
@@ -395,6 +386,30 @@ async function checkUploadRateLimit(env, ip) {
   if (count >= 5) return false;
   await env.AR_META.put(key, String(count + 1), { expirationTtl: 600 });
   return true;
+}
+
+// ─── HTML 서빙 (보안 헤더 포함) ──────────────────────────────────
+
+async function serveHtml(env, request, htmlPath) {
+  const url = new URL(htmlPath, request.url);
+  const res = await env.ASSETS.fetch(new Request(url, request));
+  if (!res.ok) return res;
+  const headers = new Headers(res.headers);
+  headers.set('X-Frame-Options', 'DENY');
+  headers.set('X-Content-Type-Options', 'nosniff');
+  headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');
+  headers.set('Content-Security-Policy',
+    "default-src 'self'; " +
+    "script-src 'self' 'wasm-unsafe-eval'; " +
+    "style-src 'self' 'unsafe-inline'; " +
+    "img-src 'self' blob: data:; " +
+    "media-src 'self' blob:; " +
+    "connect-src 'self'; " +
+    "worker-src blob: 'self'; " +
+    "object-src 'none'; " +
+    "frame-ancestors 'none';"
+  );
+  return new Response(res.body, { status: res.status, headers });
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────

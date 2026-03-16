@@ -87,6 +87,16 @@
     let _ffmpegCore = null;
     let _ffmpegLog = '';
 
+    // ─── WakeLock (녹화 중 화면 꺼짐 방지) ──────────────────────
+    let wakeLock = null;
+    async function acquireWakeLock() {
+        if (!('wakeLock' in navigator)) return;
+        try { wakeLock = await navigator.wakeLock.request('screen'); } catch (_) {}
+    }
+    function releaseWakeLock() {
+        if (wakeLock) { wakeLock.release().catch(() => {}); wakeLock = null; }
+    }
+
     // ─── 메타데이터 로드 ─────────────────────────────────────────
     startBtn.disabled = true;
     startBtn.textContent = '로딩 중...';
@@ -177,6 +187,14 @@
 
         onResize();
         window.addEventListener('resize', onResize);
+
+        // WebGL 컨텍스트 소멸 처리 (기기 메모리 부족 시 발생)
+        glCanvas.addEventListener('webglcontextlost', e => {
+            e.preventDefault();
+            cancelAnimationFrame(animId);
+            animId = null;
+            showError('그래픽 메모리가 부족합니다.\n페이지를 새로고침해 주세요.');
+        }, false);
 
         gl = glCanvas.getContext('webgl2', {
             alpha: true,
@@ -470,24 +488,26 @@
         const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
         const filename = 'ar-capture-' + Date.now() + '.png';
 
-        if (isIOS) {
-            canvas.toBlob(async (blob) => {
-                const shareFile = new File([blob], filename, { type: 'image/png' });
+        canvas.toBlob(async (blob) => {
+            const url = URL.createObjectURL(blob);
+            const shareFile = new File([blob], filename, { type: 'image/png' });
+            if (isIOS) {
                 if (navigator.canShare && navigator.canShare({ files: [shareFile] })) {
                     try { await navigator.share({ files: [shareFile], title: filename }); }
-                    catch (err) { if (err.name !== 'AbortError') window.open(canvas.toDataURL('image/png'), '_blank'); }
+                    catch (err) { if (err.name !== 'AbortError') window.open(url, '_blank'); }
                 } else {
-                    window.open(canvas.toDataURL('image/png'), '_blank');
+                    window.open(url, '_blank');
                 }
-            }, 'image/png');
-        } else {
-            const link = document.createElement('a');
-            link.download = filename;
-            link.href = canvas.toDataURL('image/png');
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-        }
+            } else {
+                const link = document.createElement('a');
+                link.download = filename;
+                link.href = url;
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+            }
+            setTimeout(() => URL.revokeObjectURL(url), 1000);
+        }, 'image/png');
     }
 
     function drawVideoCover(ctx, video, w, h, mirror) {
@@ -563,7 +583,7 @@
 
         try { core.FS.unlink('/input.webm'); } catch (_) {}
         try { core.FS.unlink('/output.mp4'); } catch (_) {}
-        _ffmpegCore = null;
+        // 인스턴스 유지 → 다음 변환 시 WASM 재다운로드 없이 재사용
         onProgress(100);
         return new Blob([data.buffer], { type: 'video/mp4' });
     }
@@ -647,6 +667,7 @@
                     recStream.getTracks().forEach(t => t.stop());
                     recStream = null;
                 }
+                releaseWakeLock();
 
                 const recBlob = new Blob(recordedChunks, { type: recFormat.mimeType || 'video/mp4' });
                 recordedChunks = [];
@@ -675,6 +696,7 @@
             mediaRecorder.start();
             isRecording = true;
             recordBtn.classList.add('recording');
+            acquireWakeLock();
             drawFrame();
         } catch (e) {
             console.error('[Record] 녹화 실패:', e);
@@ -864,6 +886,7 @@
     // ─── 페이지 종료 시 리소스 정리 ──────────────────────────────
     function cleanup() {
         cancelAnimationFrame(animId);
+        releaseWakeLock();
         if (recStream)    { recStream.getTracks().forEach(t => t.stop()); recStream = null; }
         if (cameraStream) { cameraStream.getTracks().forEach(t => t.stop()); }
         if (mediaVideoEl) { mediaVideoEl.pause(); mediaVideoEl = null; }
