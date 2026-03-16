@@ -354,20 +354,30 @@
                 fd.append(`audio${i}`, String(slot.audio));
             });
 
-            progressFill.style.width = '40%';
-            const res = await fetch('/api/upload', {
-                method: 'POST',
-                headers: { 'X-Upload-Auth': uploadSecret },
-                body: fd
+            progressFill.style.width = '5%';
+            progressText.textContent = '업로드 중... 0%';
+
+            const result = await new Promise((resolve, reject) => {
+                const xhr = new XMLHttpRequest();
+                xhr.open('POST', '/api/upload');
+                xhr.setRequestHeader('X-Upload-Auth', uploadSecret);
+                xhr.upload.onprogress = e => {
+                    if (e.lengthComputable) {
+                        const pct = 5 + Math.round(e.loaded / e.total * 85);
+                        progressFill.style.width = pct + '%';
+                        progressText.textContent = `업로드 중... ${pct}%`;
+                    }
+                };
+                xhr.onload = () => {
+                    let data;
+                    try { data = JSON.parse(xhr.responseText); } catch { data = {}; }
+                    if (xhr.status >= 200 && xhr.status < 300) resolve(data);
+                    else reject(new Error(data.error || '업로드 실패'));
+                };
+                xhr.onerror = () => reject(new Error('네트워크 오류'));
+                xhr.send(fd);
             });
-            progressFill.style.width = '80%';
 
-            if (!res.ok) {
-                const err = await res.json();
-                throw new Error(err.error || '업로드 실패');
-            }
-
-            const result = await res.json();
             progressFill.style.width = '100%';
             progressText.textContent = '완료!';
 
@@ -393,7 +403,7 @@
 
     copyLinkBtn.addEventListener('click', async () => {
         try { await navigator.clipboard.writeText(resultLink.value); }
-        catch { resultLink.select(); document.execCommand('copy'); }
+        catch { resultLink.select(); resultLink.setSelectionRange(0, 99999); }
         copyLinkBtn.textContent = '복사됨!';
         setTimeout(() => { copyLinkBtn.textContent = '복사'; }, 2000);
     });

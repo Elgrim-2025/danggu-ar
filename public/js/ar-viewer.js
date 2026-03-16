@@ -302,7 +302,7 @@
         if (isVideo) {
             const video = document.createElement('video');
             video.loop = true;
-            video.muted = false;
+            video.muted = !file.audio; // 업로드 시 설정한 소리 여부 반영
             video.playsInline = true;
             video.setAttribute('playsinline', '');
             video.setAttribute('webkit-playsinline', '');

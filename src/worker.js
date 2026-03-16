@@ -60,6 +60,9 @@ async function handleWasm(env) {
 // ─── Upload Auth Handler ─────────────────────────────────────────
 
 async function handleAuth(request, env) {
+  // 브루트포스 방지: IP당 5분에 최대 10회
+  const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
+  if (!await checkAuthRateLimit(env, ip)) return jsonResponse({ error: '요청이 너무 많습니다. 잠시 후 다시 시도하세요.' }, 429);
   try {
     const body = await request.json();
     const password = (body && body.password) ? String(body.password) : '';
@@ -76,6 +79,15 @@ async function handleAuth(request, env) {
 // ─── Upload Handler ──────────────────────────────────────────────
 
 async function handleUpload(request, env) {
+  const uploaded = []; // 롤백용: R2/KV에 성공한 파일 추적
+  async function rollback() {
+    if (uploaded.length === 0) return;
+    await Promise.all(uploaded.flatMap(f => [
+      env.AR_BUCKET.delete(`${f.id}.${f.ext}`).catch(() => {}),
+      env.AR_META.delete(`file:${f.id}`).catch(() => {}),
+    ]));
+  }
+
   try {
     // 업로드 인증 확인
     const uploadAuth = request.headers.get('X-Upload-Auth');
@@ -99,9 +111,11 @@ async function handleUpload(request, env) {
 
       const allowedTypes = ['image/jpeg', 'image/png', 'video/mp4', 'video/webm'];
       if (!allowedTypes.includes(file.type)) {
+        await rollback();
         return jsonResponse({ error: `파일 ${i + 1}: 지원하지 않는 파일 형식입니다. (jpg, png, mp4, webm)` }, 400);
       }
       if (file.size > 100 * 1024 * 1024) {
+        await rollback();
         return jsonResponse({ error: `파일 ${i + 1}: 파일 크기는 100MB 이하여야 합니다.` }, 400);
       }
 
@@ -110,19 +124,20 @@ async function handleUpload(request, env) {
       await env.AR_BUCKET.put(`${fileId}.${ext}`, file.stream(), {
         httpMetadata: { contentType: file.type }
       });
-
       await env.AR_META.put(`file:${fileId}`, JSON.stringify({ ext, type: file.type }));
+      uploaded.push({ id: fileId, ext });
 
       // 입력값 범위 검증
       const rawColor = (formData.get(`color${i}`) || '').toString();
       const color = /^#[0-9a-fA-F]{6}$/.test(rawColor) ? rawColor : '#00ff00';
       const similarity = Math.min(0.8, Math.max(0.1, parseFloat(formData.get(`similarity${i}`)) || 0.4));
       const smoothness = Math.min(0.3, Math.max(0, parseFloat(formData.get(`smoothness${i}`)) || 0.1));
+      const rawName = (file.name || '').toString().trim().slice(0, 100).replace(/[<>"'&]/g, '');
 
       const isVideo = file.type.startsWith('video/');
       files.push({
         id: fileId,
-        filename: file.name,
+        filename: rawName || `file${i + 1}`,
         type: file.type,
         ext,
         size: file.size,
@@ -141,6 +156,7 @@ async function handleUpload(request, env) {
 
     return jsonResponse({ id: groupId, url: `/ar/${groupId}`, meta: metadata }, 201);
   } catch (err) {
+    await rollback();
     return jsonResponse({ error: '업로드 실패: ' + err.message }, 500);
   }
 }
@@ -267,12 +283,11 @@ async function handleList(request, env) {
     let cursor = undefined;
     do {
       const result = await env.AR_META.list({ cursor, limit: 1000 });
-      for (const key of result.keys) {
-        if (key.name.startsWith('file:') || key.name.startsWith('rl:')) continue;
-        try {
-          const metaStr = await env.AR_META.get(key.name);
-          if (metaStr) groups.push(JSON.parse(metaStr));
-        } catch (_) { /* 개별 항목 파싱 실패 시 건너뜀 */ }
+      const validKeys = result.keys.filter(k => !k.name.startsWith('file:') && !k.name.startsWith('rl:'));
+      // 순차 읽기(N+1) 대신 병렬 읽기
+      const metas = await Promise.all(validKeys.map(k => env.AR_META.get(k.name).catch(() => null)));
+      for (const metaStr of metas) {
+        if (metaStr) try { groups.push(JSON.parse(metaStr)); } catch (_) {}
       }
       cursor = result.list_complete ? undefined : result.cursor;
     } while (cursor);
@@ -362,6 +377,16 @@ async function checkRateLimit(env, ip) {
   return true;
 }
 
+// 인증 시도: IP당 5분에 최대 10회 (브루트포스 방지)
+async function checkAuthRateLimit(env, ip) {
+  const key = 'rl:auth:' + ip;
+  const raw = await env.AR_META.get(key);
+  const count = raw ? parseInt(raw, 10) : 0;
+  if (count >= 10) return false;
+  await env.AR_META.put(key, String(count + 1), { expirationTtl: 300 });
+  return true;
+}
+
 // 업로드 전용: IP당 10분에 최대 5회
 async function checkUploadRateLimit(env, ip) {
   const key = 'rl:upload:' + ip;
@@ -399,7 +424,7 @@ function handleCORS(path) {
   const isAdmin = path === '/api/list' || /^\/api\/delete\/[a-z0-9]+$/.test(path);
   const headers = {
     'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS, HEAD',
-    'Access-Control-Allow-Headers': 'Content-Type, Range, X-Delete-Secret',
+    'Access-Control-Allow-Headers': 'Content-Type, Range, X-Delete-Secret, X-Upload-Auth',
     'Access-Control-Expose-Headers': 'Content-Range, Content-Length, Accept-Ranges',
     'Access-Control-Max-Age': '86400'
   };
