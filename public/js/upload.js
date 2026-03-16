@@ -168,7 +168,8 @@
             v.load();
         } else {
             const img = new Image();
-            img.onload = () => { slot.mediaEl = img; };
+            img.onload = () => { slot.mediaEl = img; URL.revokeObjectURL(url); };
+            img.onerror = () => URL.revokeObjectURL(url);
             img.src = url;
         }
         updateUI();

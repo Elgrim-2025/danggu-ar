@@ -596,11 +596,11 @@
             const comp = document.createElement('canvas');
             comp.width = cw; comp.height = ch;
             const cctx = comp.getContext('2d', { alpha: false, desynchronized: true });
-            const mirror = facingMode === 'user';
 
             function drawFrame() {
                 if (!isRecording) return;
-                drawVideoCover(cctx, videoBackground, cw, ch, mirror);
+                // facingMode를 매 프레임 참조 → 녹화 중 카메라 전환해도 미러 즉시 반영
+                drawVideoCover(cctx, videoBackground, cw, ch, facingMode === 'user');
                 cctx.drawImage(arCanvas, 0, 0, arCanvas.width, arCanvas.height, 0, 0, cw, ch);
                 recAnimId = requestAnimationFrame(drawFrame);
             }
@@ -641,7 +641,15 @@
                 isRecording = false;
                 cancelAnimationFrame(recAnimId);
                 recordBtn.classList.remove('recording');
+
+                // 컴포짓 캔버스 스트림 트랙 종료 (메모리/배터리 해제)
+                if (recStream) {
+                    recStream.getTracks().forEach(t => t.stop());
+                    recStream = null;
+                }
+
                 const recBlob = new Blob(recordedChunks, { type: recFormat.mimeType || 'video/mp4' });
+                recordedChunks = [];
                 const filename = 'ar-recording-' + Date.now() + '.mp4';
 
                 if (recFormat.ext === 'mp4') {
@@ -864,6 +872,17 @@
         if (gl && glProgram) { gl.deleteProgram(glProgram); }
     }
     window.addEventListener('beforeunload', cleanup);
+
+    // ─── 백그라운드 전환 시 녹화 자동 중단 ──────────────────────
+    // requestAnimationFrame은 탭/앱이 백그라운드되면 중단됨
+    // → drawFrame 루프가 멈춰 captureStream에 새 프레임이 공급되지 않음
+    // → MediaRecorder가 빈 프레임 또는 마지막 프레임을 반복 기록
+    // 해결: visibilitychange 시 녹화 중이면 즉시 stop() 호출
+    document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'hidden' && isRecording) {
+            stopRecording();
+        }
+    });
 
     // ─── 헬퍼 ────────────────────────────────────────────────────
     function showError(msg) {

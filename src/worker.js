@@ -3,16 +3,19 @@ export default {
     const url = new URL(request.url);
     const path = url.pathname;
 
-    if (request.method === 'OPTIONS') return handleCORS();
+    if (request.method === 'OPTIONS') return handleCORS(path);
 
     if (path === '/api/upload' && request.method === 'POST') return handleUpload(request, env);
     if (path === '/api/list' && request.method === 'GET') return handleList(request, env);
+
+    // 25MB 초과로 ASSETS에 못 넣는 파일 → R2에서 직접 서빙
+    if (path === '/wasm/ffmpeg-core.wasm' && request.method === 'GET') return handleWasm(env);
 
     const deleteMatch = path.match(/^\/api\/delete\/([a-z0-9]+)$/);
     if (deleteMatch && request.method === 'DELETE') return handleDelete(request, env, deleteMatch[1]);
 
     const fileMatch = path.match(/^\/api\/file\/([a-z0-9]+)$/);
-    if (fileMatch && request.method === 'GET') return handleGetFile(env, fileMatch[1]);
+    if (fileMatch && (request.method === 'GET' || request.method === 'HEAD')) return handleGetFile(env, fileMatch[1], request);
 
     const metaMatch = path.match(/^\/api\/meta\/([a-z0-9]+)$/);
     if (metaMatch && request.method === 'GET') return handleGetMeta(env, metaMatch[1]);
@@ -37,10 +40,32 @@ export default {
   }
 };
 
+// ─── Static WASM Handler (R2) ────────────────────────────────────
+
+async function handleWasm(env) {
+  try {
+    const object = await env.AR_BUCKET.get('wasm/ffmpeg-core.wasm');
+    if (!object) return new Response('Not found', { status: 404 });
+    const headers = new Headers();
+    headers.set('Content-Type', 'application/wasm');
+    headers.set('Cache-Control', 'public, max-age=31536000, immutable');
+    headers.set('Access-Control-Allow-Origin', '*');
+    return new Response(object.body, { headers });
+  } catch (err) {
+    return new Response('WASM 로드 실패', { status: 500 });
+  }
+}
+
 // ─── Upload Handler ──────────────────────────────────────────────
 
 async function handleUpload(request, env) {
   try {
+    // 업로드 전용 레이트 리밋: IP당 10분에 5회
+    const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
+    if (!await checkUploadRateLimit(env, ip)) {
+      return jsonResponse({ error: '업로드 횟수를 초과했습니다. 10분 후 다시 시도하세요.' }, 429);
+    }
+
     const formData = await request.formData();
     const groupId = generateId();
     const files = [];
@@ -65,6 +90,12 @@ async function handleUpload(request, env) {
 
       await env.AR_META.put(`file:${fileId}`, JSON.stringify({ ext, type: file.type }));
 
+      // 입력값 범위 검증
+      const rawColor = (formData.get(`color${i}`) || '').toString();
+      const color = /^#[0-9a-fA-F]{6}$/.test(rawColor) ? rawColor : '#00ff00';
+      const similarity = Math.min(0.8, Math.max(0.1, parseFloat(formData.get(`similarity${i}`)) || 0.4));
+      const smoothness = Math.min(0.3, Math.max(0, parseFloat(formData.get(`smoothness${i}`)) || 0.1));
+
       const isVideo = file.type.startsWith('video/');
       files.push({
         id: fileId,
@@ -72,9 +103,9 @@ async function handleUpload(request, env) {
         type: file.type,
         ext,
         size: file.size,
-        color: formData.get(`color${i}`) || '#00ff00',
-        similarity: parseFloat(formData.get(`similarity${i}`)) || 0.4,
-        smoothness: parseFloat(formData.get(`smoothness${i}`)) || 0.1,
+        color,
+        similarity,
+        smoothness,
         audio: isVideo && formData.get(`audio${i}`) === 'true'
       });
     }
@@ -92,22 +123,95 @@ async function handleUpload(request, env) {
 }
 
 // ─── File Serving Handler ────────────────────────────────────────
+// iOS Safari는 영상 재생 시 Range 요청 필수 (206 Partial Content)
+// Range 없이 200으로 응답하면 Safari에서 영상 재생 불가
 
-async function handleGetFile(env, id) {
+async function handleGetFile(env, id, request) {
   try {
     const fileMetaStr = await env.AR_META.get(`file:${id}`);
-    // KV TTL 만료 시 fileMetaStr === null → 404
     if (!fileMetaStr) return jsonResponse({ error: '파일을 찾을 수 없습니다.' }, 404);
 
     const fileMeta = JSON.parse(fileMetaStr);
-    const object = await env.AR_BUCKET.get(`${id}.${fileMeta.ext}`);
+    const key = `${id}.${fileMeta.ext}`;
+    const isVideo = fileMeta.type.startsWith('video/');
+
+    const rangeHeader = request.headers.get('Range');
+
+    // Range 요청 처리 (iOS Safari / Android Chrome 영상 탐색)
+    if (rangeHeader && isVideo) {
+      // 전체 크기 확인 (head 요청으로 body 다운로드 없이)
+      const head = await env.AR_BUCKET.head(key);
+      if (!head) return jsonResponse({ error: '파일을 찾을 수 없습니다.' }, 404);
+      const totalSize = head.size;
+
+      const match = rangeHeader.match(/bytes=(\d*)-(\d*)/);
+      if (!match) {
+        return new Response('Invalid Range', {
+          status: 416,
+          headers: { 'Content-Range': `bytes */${totalSize}` }
+        });
+      }
+
+      const rawStart = match[1];
+      const rawEnd   = match[2];
+      let start, end;
+
+      if (rawStart === '') {
+        // suffix-range: bytes=-N  → 마지막 N 바이트
+        start = totalSize - parseInt(rawEnd, 10);
+        end   = totalSize - 1;
+      } else {
+        start = parseInt(rawStart, 10);
+        end   = rawEnd !== '' ? Math.min(parseInt(rawEnd, 10), totalSize - 1) : totalSize - 1;
+      }
+
+      if (isNaN(start) || isNaN(end) || start > end || start < 0 || end >= totalSize) {
+        return new Response('Range Not Satisfiable', {
+          status: 416,
+          headers: { 'Content-Range': `bytes */${totalSize}` }
+        });
+      }
+
+      const chunkSize = end - start + 1;
+      const object = await env.AR_BUCKET.get(key, {
+        range: { offset: start, length: chunkSize }
+      });
+      if (!object) return jsonResponse({ error: '파일을 찾을 수 없습니다.' }, 404);
+
+      const headers = new Headers();
+      headers.set('Content-Type', fileMeta.type);
+      headers.set('Content-Range', `bytes ${start}-${end}/${totalSize}`);
+      headers.set('Content-Length', String(chunkSize));
+      headers.set('Accept-Ranges', 'bytes');
+      headers.set('Cache-Control', 'public, max-age=86400');
+      headers.set('Access-Control-Allow-Origin', '*');
+      return new Response(object.body, { status: 206, headers });
+    }
+
+    // HEAD 요청 (브라우저가 파일 크기 사전 확인)
+    if (request.method === 'HEAD') {
+      const head = await env.AR_BUCKET.head(key);
+      if (!head) return jsonResponse({ error: '파일을 찾을 수 없습니다.' }, 404);
+      const headers = new Headers();
+      headers.set('Content-Type', fileMeta.type);
+      headers.set('Content-Length', String(head.size));
+      headers.set('Accept-Ranges', 'bytes');
+      headers.set('Cache-Control', 'public, max-age=86400');
+      headers.set('Access-Control-Allow-Origin', '*');
+      return new Response(null, { status: 200, headers });
+    }
+
+    // 일반 GET 요청
+    const object = await env.AR_BUCKET.get(key);
     if (!object) return jsonResponse({ error: '파일을 찾을 수 없습니다.' }, 404);
 
     const headers = new Headers();
     headers.set('Content-Type', fileMeta.type);
+    headers.set('Accept-Ranges', 'bytes');
+    headers.set('Content-Length', String(object.size));
     headers.set('Cache-Control', 'public, max-age=86400');
     headers.set('Access-Control-Allow-Origin', '*');
-    return new Response(object.body, { headers });
+    return new Response(object.body, { status: 200, headers });
   } catch (err) {
     return jsonResponse({ error: '파일 조회 실패' }, 500);
   }
@@ -130,10 +234,10 @@ async function handleGetMeta(env, id) {
 
 async function handleList(request, env) {
   const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
-  if (!await checkRateLimit(env, ip)) return jsonResponse({ error: '요청이 너무 많습니다. 잠시 후 다시 시도하세요.' }, 429);
+  if (!await checkRateLimit(env, ip)) return jsonResponse({ error: '요청이 너무 많습니다. 잠시 후 다시 시도하세요.' }, 429, false);
 
   const secret = request.headers.get('X-Delete-Secret');
-  if (!await verifySecret(secret, env.DELETE_SECRET)) return jsonResponse({ error: '인증 실패' }, 403);
+  if (!await verifySecret(secret, env.DELETE_SECRET)) return jsonResponse({ error: '인증 실패' }, 403, false);
 
   try {
     const groups = [];
@@ -151,9 +255,9 @@ async function handleList(request, env) {
     } while (cursor);
 
     groups.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
-    return jsonResponse({ groups });
+    return jsonResponse({ groups }, 200, false);
   } catch (err) {
-    return jsonResponse({ error: '목록 조회 실패' }, 500);
+    return jsonResponse({ error: '목록 조회 실패' }, 500, false);
   }
 }
 
@@ -161,20 +265,20 @@ async function handleList(request, env) {
 
 async function handleDelete(request, env, groupId) {
   const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
-  if (!await checkRateLimit(env, ip)) return jsonResponse({ error: '요청이 너무 많습니다. 잠시 후 다시 시도하세요.' }, 429);
+  if (!await checkRateLimit(env, ip)) return jsonResponse({ error: '요청이 너무 많습니다. 잠시 후 다시 시도하세요.' }, 429, false);
 
   const secret = request.headers.get('X-Delete-Secret');
-  if (!await verifySecret(secret, env.DELETE_SECRET)) return jsonResponse({ error: '인증 실패' }, 403);
+  if (!await verifySecret(secret, env.DELETE_SECRET)) return jsonResponse({ error: '인증 실패' }, 403, false);
 
   try {
     const metaStr = await env.AR_META.get(groupId);
-    if (!metaStr) return jsonResponse({ error: '찾을 수 없습니다.' }, 404);
+    if (!metaStr) return jsonResponse({ error: '찾을 수 없습니다.' }, 404, false);
 
     const meta = JSON.parse(metaStr);
     await deleteGroup(env, meta);
-    return jsonResponse({ ok: true, deleted: groupId });
+    return jsonResponse({ ok: true, deleted: groupId }, 200, false);
   } catch (err) {
-    return jsonResponse({ error: '삭제 실패: ' + err.message }, 500);
+    return jsonResponse({ error: '삭제 실패: ' + err.message }, 500, false);
   }
 }
 
@@ -235,6 +339,16 @@ async function checkRateLimit(env, ip) {
   return true;
 }
 
+// 업로드 전용: IP당 10분에 최대 5회
+async function checkUploadRateLimit(env, ip) {
+  const key = 'rl:upload:' + ip;
+  const raw = await env.AR_META.get(key);
+  const count = raw ? parseInt(raw, 10) : 0;
+  if (count >= 5) return false;
+  await env.AR_META.put(key, String(count + 1), { expirationTtl: 600 });
+  return true;
+}
+
 // ─── Helpers ─────────────────────────────────────────────────────
 
 function generateId() {
@@ -250,20 +364,22 @@ function getExtension(mimeType) {
   return { 'image/jpeg': 'jpg', 'image/png': 'png', 'video/mp4': 'mp4', 'video/webm': 'webm' }[mimeType] || 'bin';
 }
 
-function jsonResponse(data, status = 200) {
-  return new Response(JSON.stringify(data), {
-    status,
-    headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
-  });
+// cors=false: 관리 전용 엔드포인트 (list, delete) — 크로스오리진 접근 차단
+function jsonResponse(data, status = 200, cors = true) {
+  const headers = { 'Content-Type': 'application/json' };
+  if (cors) headers['Access-Control-Allow-Origin'] = '*';
+  return new Response(JSON.stringify(data), { status, headers });
 }
 
-function handleCORS() {
-  return new Response(null, {
-    headers: {
-      'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type',
-      'Access-Control-Max-Age': '86400'
-    }
-  });
+// 관리 경로(list, delete)는 Access-Control-Allow-Origin 헤더 미포함 → 브라우저가 크로스오리진 차단
+function handleCORS(path) {
+  const isAdmin = path === '/api/list' || /^\/api\/delete\/[a-z0-9]+$/.test(path);
+  const headers = {
+    'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS, HEAD',
+    'Access-Control-Allow-Headers': 'Content-Type, Range, X-Delete-Secret',
+    'Access-Control-Expose-Headers': 'Content-Range, Content-Length, Accept-Ranges',
+    'Access-Control-Max-Age': '86400'
+  };
+  if (!isAdmin) headers['Access-Control-Allow-Origin'] = '*';
+  return new Response(null, { headers });
 }

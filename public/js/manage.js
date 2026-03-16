@@ -67,7 +67,15 @@ function renderGroups(groups) {
         const fileItems = g.files.map(f => {
             const icon = f.type.startsWith('video/') ? '🎬' : '🖼️';
             const size = (f.size / 1024 / 1024).toFixed(1);
-            return `<span class="file-tag">${icon} ${f.filename} (${size}MB)</span>`;
+            return `<span class="file-tag">${icon} ${escHtml(f.filename)} (${size}MB)</span>`;
+        }).join('');
+
+        const previews = g.files.map(f => {
+            if (f.type.startsWith('image/')) {
+                return `<img src="/api/file/${f.id}" class="thumb" loading="lazy" alt="${escHtml(f.filename)}">`;
+            } else {
+                return `<video src="/api/file/${f.id}" class="thumb" preload="metadata" muted playsinline></video>`;
+            }
         }).join('');
 
         card.innerHTML = `
@@ -75,6 +83,7 @@ function renderGroups(groups) {
                 <div class="card-info">
                     <div class="card-title">${escHtml(title)}</div>
                     <div class="card-date">${date}</div>
+                    <div class="thumb-row">${previews}</div>
                     <div class="card-files">${fileItems}</div>
                 </div>
                 <button class="del-btn" data-id="${g.id}">삭제</button>
