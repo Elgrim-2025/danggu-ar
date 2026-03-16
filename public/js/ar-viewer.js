@@ -349,9 +349,16 @@
 
             // 재생/정지 버튼 — 비디오일 때만 표시
             playBtn.classList.remove('hidden');
-            playBtn.textContent = '⏸\uFE0E';
-            video.addEventListener('play',  () => { playBtn.textContent = '⏸\uFE0E'; });
-            video.addEventListener('pause', () => { playBtn.textContent = '▶\uFE0E'; });
+            const iconPause = document.getElementById('play-icon-pause');
+            const iconPlay  = document.getElementById('play-icon-play');
+            function syncPlayIcon() {
+                const paused = video.paused;
+                iconPause.style.display = paused ? 'none'  : '';
+                iconPlay.style.display  = paused ? ''      : 'none';
+            }
+            syncPlayIcon();
+            video.addEventListener('play',  syncPlayIcon);
+            video.addEventListener('pause', syncPlayIcon);
         } else {
             const img = await loadImage(fileUrl);
             setOverlaySize(img.naturalWidth, img.naturalHeight);

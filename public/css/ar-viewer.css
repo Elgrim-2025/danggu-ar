@@ -429,7 +429,6 @@ body {
     -webkit-backdrop-filter: blur(18px);
     border: 1px solid var(--btn-border);
     color: rgba(255,255,255,0.8);
-    font-size: 14px;
     cursor: pointer;
     display: flex;
     align-items: center;
