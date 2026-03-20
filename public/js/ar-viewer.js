@@ -53,6 +53,7 @@
     let glProgram = null;
     let glTexture = null;
     let glVao = null;
+    let glBuffer = null;
     let glUniforms = {};
 
     // ─── 오버레이 상태 (화면 픽셀 좌표) ─────────────────────────
@@ -79,6 +80,10 @@
 
     // ─── 렌더링 ──────────────────────────────────────────────────
     let animId = null;
+    let useChromaKey = true;
+
+    // ─── 플랫폼 ──────────────────────────────────────────────────
+    const isAndroid = /Android/i.test(navigator.userAgent);
 
     // ─── 녹화 ────────────────────────────────────────────────────
     let mediaRecorder = null, recordedChunks = [], recStream = null;
@@ -232,13 +237,14 @@
             gl_Position = vec4(clip, 0.0, 1.0);
         }`;
 
-        // ── 프래그먼트 셰이더 (크로마키) ───────────────────────
+        // ── 프래그먼트 셰이더 (크로마키 / WebM alpha 분기) ─────
         const fsrc = `#version 300 es
         precision mediump float;
         uniform sampler2D u_tex;
         uniform vec3 u_key;
         uniform float u_sim;
         uniform float u_smooth;
+        uniform bool u_useChroma;
         in vec2 vUv;
         out vec4 outColor;
         vec2 rgb2uv(vec3 c) {
@@ -249,10 +255,14 @@
         }
         void main() {
             vec4 col = texture(u_tex, vUv);
-            vec2 cv = rgb2uv(col.rgb) - rgb2uv(u_key);
-            float d = sqrt(dot(cv, cv));
-            float a = smoothstep(u_sim, u_sim + u_smooth, d);
-            outColor = vec4(col.rgb, col.a * a);
+            if (u_useChroma) {
+                vec2 cv = rgb2uv(col.rgb) - rgb2uv(u_key);
+                float d = sqrt(dot(cv, cv));
+                float a = smoothstep(u_sim, u_sim + u_smooth, d);
+                outColor = vec4(col.rgb, col.a * a);
+            } else {
+                outColor = col;
+            }
         }`;
 
         const vs = compileShader(gl.VERTEX_SHADER,   vsrc);
@@ -267,8 +277,8 @@
         // 단위 사각형 VAO
         glVao = gl.createVertexArray();
         gl.bindVertexArray(glVao);
-        const buf = gl.createBuffer();
-        gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+        glBuffer = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, glBuffer);
         gl.bufferData(gl.ARRAY_BUFFER,
             new Float32Array([-1,-1,  1,-1,  -1,1,  1,1]), gl.STATIC_DRAW);
         const loc = gl.getAttribLocation(glProgram, 'a_pos');
@@ -276,13 +286,14 @@
         gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
 
         glUniforms = {
-            res:    gl.getUniformLocation(glProgram, 'u_res'),
-            center: gl.getUniformLocation(glProgram, 'u_center'),
-            half:   gl.getUniformLocation(glProgram, 'u_half'),
-            tex:    gl.getUniformLocation(glProgram, 'u_tex'),
-            key:    gl.getUniformLocation(glProgram, 'u_key'),
-            sim:    gl.getUniformLocation(glProgram, 'u_sim'),
-            smooth: gl.getUniformLocation(glProgram, 'u_smooth'),
+            res:       gl.getUniformLocation(glProgram, 'u_res'),
+            center:    gl.getUniformLocation(glProgram, 'u_center'),
+            half:      gl.getUniformLocation(glProgram, 'u_half'),
+            tex:       gl.getUniformLocation(glProgram, 'u_tex'),
+            key:       gl.getUniformLocation(glProgram, 'u_key'),
+            sim:       gl.getUniformLocation(glProgram, 'u_sim'),
+            smooth:    gl.getUniformLocation(glProgram, 'u_smooth'),
+            useChroma: gl.getUniformLocation(glProgram, 'u_useChroma'),
         };
 
         gl.enable(gl.BLEND);
@@ -314,15 +325,24 @@
     }
 
     // ─── 파일 로드 ───────────────────────────────────────────────
+    let isLoadingFile = false;
+
     /** @param {number} idx */
     async function loadFile(idx) {
+        if (isLoadingFile) return;
+        isLoadingFile = true;
+        try {
         if (mediaVideoEl) { mediaVideoEl.pause(); mediaVideoEl = null; }
         if (videoAudioCtx) { videoAudioCtx.close(); videoAudioCtx = null; videoAudioDest = null; }
 
         currentFileIdx = idx;
         const file = arFiles[idx];
         const isVideo = file.type.startsWith('video/');
-        const fileUrl = '/api/file/' + file.id;
+
+        // 안드로이드 + androidId 있으면 WebM alpha variant 사용 (크로마키 불필요)
+        const useAndroid = isAndroid && !!file.androidId;
+        useChromaKey = !useAndroid;
+        const fileUrl = useAndroid ? '/api/file/' + file.androidId : '/api/file/' + file.id;
 
         const c = hexToRgb(file.color);
         overlay.color      = [c.r / 255, c.g / 255, c.b / 255];
@@ -371,6 +391,9 @@
         adjustSmoothness.value = file.smoothness;
         adjSimVal.textContent  = file.similarity.toFixed(2);
         adjSmoothVal.textContent = file.smoothness.toFixed(2);
+        } finally {
+            isLoadingFile = false;
+        }
     }
 
     /**
@@ -455,9 +478,10 @@
         gl.uniform2f(glUniforms.center, overlay.x * dpr, overlay.y * dpr);
         gl.uniform2f(glUniforms.half,   overlay.baseW * overlay.scale * 0.5 * dpr,
                                         overlay.baseH * overlay.scale * 0.5 * dpr);
-        gl.uniform3f(glUniforms.key,    overlay.color[0], overlay.color[1], overlay.color[2]);
-        gl.uniform1f(glUniforms.sim,    overlay.similarity);
-        gl.uniform1f(glUniforms.smooth, overlay.smoothness);
+        gl.uniform3f(glUniforms.key,      overlay.color[0], overlay.color[1], overlay.color[2]);
+        gl.uniform1f(glUniforms.sim,      overlay.similarity);
+        gl.uniform1f(glUniforms.smooth,   overlay.smoothness);
+        gl.uniform1i(glUniforms.useChroma, useChromaKey ? 1 : 0);
         gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
     }
 
@@ -503,6 +527,17 @@
         }
         // glCanvas는 preserveDrawingBuffer:true 로 생성했으므로 읽기 가능
         ctx.drawImage(glCanvas, 0, 0, W, H);
+
+        // 워터마크 합성
+        const wmEl = document.getElementById('watermark');
+        if (wmEl && wmEl.complete && wmEl.naturalWidth) {
+            const wmW = Math.round(W * 0.24);
+            const wmH = Math.round(wmEl.naturalHeight * (wmW / wmEl.naturalWidth));
+            const margin = Math.round(W * 0.04);
+            ctx.globalAlpha = 0.72;
+            ctx.drawImage(wmEl, W - wmW - margin, H - wmH - margin, wmW, wmH);
+            ctx.globalAlpha = 1;
+        }
 
         const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
         const filename = 'ar-capture-' + Date.now() + '.png';
@@ -636,11 +671,21 @@
             comp.width = cw; comp.height = ch;
             const cctx = comp.getContext('2d', { alpha: false, desynchronized: true });
 
+            const recWmEl = document.getElementById('watermark');
             function drawFrame() {
                 if (!isRecording) return;
                 // facingMode를 매 프레임 참조 → 녹화 중 카메라 전환해도 미러 즉시 반영
                 drawVideoCover(cctx, videoBackground, cw, ch, facingMode === 'user');
                 cctx.drawImage(arCanvas, 0, 0, arCanvas.width, arCanvas.height, 0, 0, cw, ch);
+                // 워터마크 합성
+                if (recWmEl && recWmEl.complete && recWmEl.naturalWidth) {
+                    const wmW = Math.round(cw * 0.24);
+                    const wmH = Math.round(recWmEl.naturalHeight * (wmW / recWmEl.naturalWidth));
+                    const margin = Math.round(cw * 0.04);
+                    cctx.globalAlpha = 0.72;
+                    cctx.drawImage(recWmEl, cw - wmW - margin, ch - wmH - margin, wmW, wmH);
+                    cctx.globalAlpha = 1;
+                }
                 recAnimId = requestAnimationFrame(drawFrame);
             }
 
@@ -912,6 +957,9 @@
         if (videoAudioCtx) { videoAudioCtx.close(); videoAudioCtx = null; }
         if (gl && glTexture) { gl.deleteTexture(glTexture); }
         if (gl && glProgram) { gl.deleteProgram(glProgram); }
+        if (gl && glVao)     { gl.deleteVertexArray(glVao); }
+        if (gl && glBuffer)  { gl.deleteBuffer(glBuffer); }
+        _ffmpegCore = null;
     }
     window.addEventListener('beforeunload', cleanup);
 

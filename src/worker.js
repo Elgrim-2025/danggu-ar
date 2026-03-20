@@ -15,6 +15,16 @@ export default {
     const deleteMatch = path.match(/^\/api\/delete\/([a-z0-9]+)$/);
     if (deleteMatch && request.method === 'DELETE') return handleDelete(request, env, deleteMatch[1]);
 
+    const projectMatch = path.match(/^\/api\/project\/([a-z0-9]+)$/);
+    if (projectMatch && request.method === 'PATCH') return handleProjectUpdate(request, env, projectMatch[1]);
+
+    const projectFileMatch = path.match(/^\/api\/project\/([a-z0-9]+)\/file\/(\d+)$/);
+    if (projectFileMatch && request.method === 'PATCH') return handleFileReplace(request, env, projectFileMatch[1], parseInt(projectFileMatch[2]));
+
+    const androidMatch = path.match(/^\/api\/project\/([a-z0-9]+)\/file\/(\d+)\/android$/);
+    if (androidMatch && request.method === 'PATCH')  return handleAndroidVariantUpload(request, env, androidMatch[1], parseInt(androidMatch[2]));
+    if (androidMatch && request.method === 'DELETE') return handleAndroidVariantDelete(request, env, androidMatch[1], parseInt(androidMatch[2]));
+
     const fileMatch = path.match(/^\/api\/file\/([a-z0-9]+)$/);
     if (fileMatch && (request.method === 'GET' || request.method === 'HEAD')) return handleGetFile(env, fileMatch[1], request);
 
@@ -290,6 +300,154 @@ async function handleList(request, env) {
   }
 }
 
+// ─── Project Update Handler ──────────────────────────────────────
+
+async function handleProjectUpdate(request, env, groupId) {
+  const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
+  if (!await checkRateLimit(env, ip)) return jsonResponse({ error: '요청이 너무 많습니다.' }, 429, false);
+  const secret = request.headers.get('X-Delete-Secret');
+  if (!await verifySecret(secret, env.DELETE_SECRET)) return jsonResponse({ error: '인증 실패' }, 403, false);
+  try {
+    const metaStr = await env.AR_META.get(groupId);
+    if (!metaStr) return jsonResponse({ error: '찾을 수 없습니다.' }, 404, false);
+    const meta = JSON.parse(metaStr);
+    const body = await request.json();
+    if ('title' in body) meta.title = String(body.title || '').trim().slice(0, 50) || null;
+    if (Array.isArray(body.files)) {
+      body.files.forEach((update, i) => {
+        if (!update || i >= meta.files.length) return;
+        const f = meta.files[i];
+        if ('color' in update) {
+          const c = String(update.color);
+          if (/^#[0-9a-fA-F]{6}$/.test(c)) f.color = c;
+        }
+        if ('similarity' in update) f.similarity = Math.min(0.8, Math.max(0.1, parseFloat(update.similarity) || f.similarity));
+        if ('smoothness' in update) f.smoothness = Math.min(0.3, Math.max(0, parseFloat(update.smoothness)));
+        if ('audio' in update && f.type.startsWith('video/')) f.audio = Boolean(update.audio);
+      });
+    }
+    meta.updatedAt = Date.now();
+    await env.AR_META.put(groupId, JSON.stringify(meta));
+    return jsonResponse({ ok: true, meta }, 200, false);
+  } catch (err) {
+    return jsonResponse({ error: '업데이트 실패: ' + err.message }, 500, false);
+  }
+}
+
+// ─── File Replace Handler ────────────────────────────────────────
+
+async function handleFileReplace(request, env, groupId, fileIndex) {
+  const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
+  if (!await checkRateLimit(env, ip)) return jsonResponse({ error: '요청이 너무 많습니다.' }, 429, false);
+  const secret = request.headers.get('X-Delete-Secret');
+  if (!await verifySecret(secret, env.DELETE_SECRET)) return jsonResponse({ error: '인증 실패' }, 403, false);
+  try {
+    const metaStr = await env.AR_META.get(groupId);
+    if (!metaStr) return jsonResponse({ error: '찾을 수 없습니다.' }, 404, false);
+    const meta = JSON.parse(metaStr);
+    if (fileIndex < 0 || fileIndex >= meta.files.length) return jsonResponse({ error: '잘못된 파일 인덱스' }, 400, false);
+    const formData = await request.formData();
+    const file = formData.get('file');
+    if (!file || !file.name) return jsonResponse({ error: '파일이 없습니다.' }, 400, false);
+    const allowedTypes = ['image/jpeg', 'image/png', 'video/mp4', 'video/webm'];
+    if (!allowedTypes.includes(file.type)) return jsonResponse({ error: '지원하지 않는 파일 형식입니다.' }, 400, false);
+    if (file.size > 100 * 1024 * 1024) return jsonResponse({ error: '파일 크기는 100MB 이하여야 합니다.' }, 400, false);
+    const oldFile = meta.files[fileIndex];
+    const newFileId = generateId();
+    const newExt = getExtension(file.type);
+    await env.AR_BUCKET.put(`${newFileId}.${newExt}`, file.stream(), { httpMetadata: { contentType: file.type } });
+    await env.AR_META.put(`file:${newFileId}`, JSON.stringify({ ext: newExt, type: file.type }));
+    await env.AR_BUCKET.delete(`${oldFile.id}.${oldFile.ext}`).catch(() => {});
+    await env.AR_META.delete(`file:${oldFile.id}`).catch(() => {});
+    const rawName = (file.name || '').toString().trim().slice(0, 100).replace(/[<>"'&]/g, '');
+    const isVideo = file.type.startsWith('video/');
+    meta.files[fileIndex] = {
+      id: newFileId,
+      filename: rawName || `file${fileIndex + 1}`,
+      type: file.type,
+      ext: newExt,
+      size: file.size,
+      color: oldFile.color || '#00ff00',
+      similarity: oldFile.similarity || 0.4,
+      smoothness: oldFile.smoothness || 0.1,
+      audio: isVideo && (oldFile.audio || false),
+    };
+    meta.updatedAt = Date.now();
+    await env.AR_META.put(groupId, JSON.stringify(meta));
+    return jsonResponse({ ok: true, file: meta.files[fileIndex] }, 200, false);
+  } catch (err) {
+    return jsonResponse({ error: '파일 교체 실패: ' + err.message }, 500, false);
+  }
+}
+
+// ─── Android Variant Upload Handler ─────────────────────────────
+
+async function handleAndroidVariantUpload(request, env, groupId, fileIndex) {
+  const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
+  if (!await checkRateLimit(env, ip)) return jsonResponse({ error: '요청이 너무 많습니다.' }, 429, false);
+  const secret = request.headers.get('X-Delete-Secret');
+  if (!await verifySecret(secret, env.DELETE_SECRET)) return jsonResponse({ error: '인증 실패' }, 403, false);
+  try {
+    const metaStr = await env.AR_META.get(groupId);
+    if (!metaStr) return jsonResponse({ error: '찾을 수 없습니다.' }, 404, false);
+    const meta = JSON.parse(metaStr);
+    if (fileIndex < 0 || fileIndex >= meta.files.length) return jsonResponse({ error: '잘못된 파일 인덱스' }, 400, false);
+
+    const formData = await request.formData();
+    const file = formData.get('file');
+    if (!file || !file.name) return jsonResponse({ error: '파일이 없습니다.' }, 400, false);
+    if (file.type !== 'video/webm') return jsonResponse({ error: 'WebM 파일만 업로드 가능합니다.' }, 400, false);
+    if (file.size > 100 * 1024 * 1024) return jsonResponse({ error: '파일 크기는 100MB 이하여야 합니다.' }, 400, false);
+
+    // 기존 android variant 삭제
+    const oldFile = meta.files[fileIndex];
+    if (oldFile.androidId) {
+      await env.AR_BUCKET.delete(`${oldFile.androidId}.${oldFile.androidExt}`).catch(() => {});
+      await env.AR_META.delete(`file:${oldFile.androidId}`).catch(() => {});
+    }
+
+    const androidId = generateId();
+    await env.AR_BUCKET.put(`${androidId}.webm`, file.stream(), { httpMetadata: { contentType: 'video/webm' } });
+    await env.AR_META.put(`file:${androidId}`, JSON.stringify({ ext: 'webm', type: 'video/webm' }));
+
+    meta.files[fileIndex].androidId  = androidId;
+    meta.files[fileIndex].androidExt = 'webm';
+    meta.updatedAt = Date.now();
+    await env.AR_META.put(groupId, JSON.stringify(meta));
+    return jsonResponse({ ok: true, androidId }, 200, false);
+  } catch (err) {
+    return jsonResponse({ error: '업로드 실패: ' + err.message }, 500, false);
+  }
+}
+
+// ─── Android Variant Delete Handler ─────────────────────────────
+
+async function handleAndroidVariantDelete(request, env, groupId, fileIndex) {
+  const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
+  if (!await checkRateLimit(env, ip)) return jsonResponse({ error: '요청이 너무 많습니다.' }, 429, false);
+  const secret = request.headers.get('X-Delete-Secret');
+  if (!await verifySecret(secret, env.DELETE_SECRET)) return jsonResponse({ error: '인증 실패' }, 403, false);
+  try {
+    const metaStr = await env.AR_META.get(groupId);
+    if (!metaStr) return jsonResponse({ error: '찾을 수 없습니다.' }, 404, false);
+    const meta = JSON.parse(metaStr);
+    if (fileIndex < 0 || fileIndex >= meta.files.length) return jsonResponse({ error: '잘못된 파일 인덱스' }, 400, false);
+
+    const f = meta.files[fileIndex];
+    if (!f.androidId) return jsonResponse({ error: 'android variant가 없습니다.' }, 404, false);
+
+    await env.AR_BUCKET.delete(`${f.androidId}.${f.androidExt}`).catch(() => {});
+    await env.AR_META.delete(`file:${f.androidId}`).catch(() => {});
+    delete meta.files[fileIndex].androidId;
+    delete meta.files[fileIndex].androidExt;
+    meta.updatedAt = Date.now();
+    await env.AR_META.put(groupId, JSON.stringify(meta));
+    return jsonResponse({ ok: true }, 200, false);
+  } catch (err) {
+    return jsonResponse({ error: '삭제 실패: ' + err.message }, 500, false);
+  }
+}
+
 // ─── Delete Handler ──────────────────────────────────────────────
 
 async function handleDelete(request, env, groupId) {
@@ -319,10 +477,17 @@ async function handleDelete(request, env, groupId) {
  * @param {{ id: string, files: Array<{id:string, ext:string}> }} meta
  */
 async function deleteGroup(env, meta) {
-  await Promise.all(meta.files.flatMap(file => [
-    env.AR_BUCKET.delete(`${file.id}.${file.ext}`),
-    env.AR_META.delete(`file:${file.id}`),
-  ]));
+  await Promise.all(meta.files.flatMap(file => {
+    const ops = [
+      env.AR_BUCKET.delete(`${file.id}.${file.ext}`),
+      env.AR_META.delete(`file:${file.id}`),
+    ];
+    if (file.androidId) {
+      ops.push(env.AR_BUCKET.delete(`${file.androidId}.${file.androidExt}`).catch(() => {}));
+      ops.push(env.AR_META.delete(`file:${file.androidId}`).catch(() => {}));
+    }
+    return ops;
+  }));
   await env.AR_META.delete(meta.id);
 }
 
@@ -436,9 +601,11 @@ function jsonResponse(data, status = 200, cors = true) {
 
 // 관리 경로(list, delete)는 Access-Control-Allow-Origin 헤더 미포함 → 브라우저가 크로스오리진 차단
 function handleCORS(path) {
-  const isAdmin = path === '/api/list' || /^\/api\/delete\/[a-z0-9]+$/.test(path);
+  const isAdmin = path === '/api/list'
+    || /^\/api\/delete\/[a-z0-9]+$/.test(path)
+    || /^\/api\/project\/[a-z0-9]+(\/file\/\d+(\/android)?)?$/.test(path);
   const headers = {
-    'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS, HEAD',
+    'Access-Control-Allow-Methods': 'GET, POST, DELETE, PATCH, OPTIONS, HEAD',
     'Access-Control-Allow-Headers': 'Content-Type, Range, X-Delete-Secret, X-Upload-Auth',
     'Access-Control-Expose-Headers': 'Content-Range, Content-Length, Accept-Ranges',
     'Access-Control-Max-Age': '86400'

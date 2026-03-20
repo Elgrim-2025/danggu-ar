@@ -263,6 +263,21 @@ body {
     touch-action: none;
 }
 
+/* ─── Watermark ─────────────────────────────────── */
+
+#watermark {
+    position: absolute;
+    bottom: 18px;
+    right: 16px;
+    width: 96px;
+    height: auto;
+    opacity: 0.72;
+    z-index: 9;
+    pointer-events: none;
+    -webkit-user-select: none;
+    user-select: none;
+}
+
 /* ─── Instruction ───────────────────────────────── */
 
 #instruction {

@@ -157,4 +157,227 @@ header h1 { font-size: 1.4rem; }
 
 #empty-msg { text-align: center; color: #555; margin-top: 60px; }
 
+/* ─── Card Buttons ──────────────────────────────── */
+
+.card-btns { display: flex; gap: 6px; flex-shrink: 0; }
+
+.edit-btn {
+    background: #1e3a5f;
+    color: #93c5fd;
+    border: none;
+    border-radius: 6px;
+    padding: 6px 14px;
+    cursor: pointer;
+    font-size: 0.85rem;
+    white-space: nowrap;
+}
+.edit-btn:hover { background: #1e4a80; }
+
+/* ─── Edit Panel ────────────────────────────────── */
+
+.edit-panel {
+    margin-top: 14px;
+    padding-top: 16px;
+    border-top: 1px solid #2a2a2a;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.ep-section-title {
+    font-size: 0.72rem;
+    font-weight: 600;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+    color: #555;
+    margin-bottom: 2px;
+}
+
+.ep-input {
+    width: 100%;
+    padding: 8px 10px;
+    background: #111;
+    border: 1px solid #2a2a2a;
+    border-radius: 6px;
+    color: #ddd;
+    font-size: 0.9rem;
+    outline: none;
+}
+.ep-input:focus { border-color: #444; }
+
+.ep-file {
+    background: #111;
+    border: 1px solid #2a2a2a;
+    border-radius: 8px;
+    padding: 12px;
+}
+
+.ep-file-name {
+    font-size: 0.82rem;
+    color: #888;
+    margin-bottom: 10px;
+}
+
+.ep-controls { display: flex; flex-direction: column; gap: 9px; }
+
+.ep-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+}
+
+.ep-label {
+    font-size: 0.78rem;
+    color: #777;
+    white-space: nowrap;
+}
+
+.ep-val { font-style: normal; color: #aaa; }
+
+.ep-range { flex: 1; max-width: 140px; accent-color: #2563eb; cursor: pointer; }
+
+input[type="color"].ep-color {
+    width: 36px;
+    height: 24px;
+    border: 1px solid #333;
+    border-radius: 4px;
+    cursor: pointer;
+    background: none;
+    padding: 1px;
+}
+
+/* Toggle switch */
+.ep-switch { position: relative; display: inline-block; width: 36px; height: 20px; flex-shrink: 0; }
+.ep-switch input { opacity: 0; width: 0; height: 0; }
+.ep-slider {
+    position: absolute; inset: 0;
+    background: #333;
+    border-radius: 20px;
+    cursor: pointer;
+    transition: background 0.2s;
+}
+.ep-slider::before {
+    content: '';
+    position: absolute;
+    width: 14px; height: 14px;
+    left: 3px; top: 3px;
+    background: #fff;
+    border-radius: 50%;
+    transition: transform 0.2s;
+}
+.ep-switch input:checked + .ep-slider { background: #2563eb; }
+.ep-switch input:checked + .ep-slider::before { transform: translateX(16px); }
+
+.ep-replace-btn {
+    margin-top: 4px;
+    background: #1a1a2e;
+    border: 1px solid #334;
+    color: #94a3b8;
+    border-radius: 6px;
+    padding: 6px 12px;
+    font-size: 0.8rem;
+    cursor: pointer;
+    width: 100%;
+    text-align: center;
+    transition: background 0.15s;
+}
+.ep-replace-btn:hover { background: #1e2a40; }
+.ep-replace-btn:disabled { opacity: 0.5; cursor: default; }
+
+.ep-actions { display: flex; gap: 8px; margin-top: 4px; }
+
+.ep-save-btn {
+    flex: 1;
+    background: #2563eb;
+    color: #fff;
+    border: none;
+    border-radius: 6px;
+    padding: 8px;
+    font-size: 0.85rem;
+    cursor: pointer;
+    font-weight: 600;
+}
+.ep-save-btn:hover { background: #1d4ed8; }
+.ep-save-btn:disabled { opacity: 0.5; cursor: default; }
+
+.ep-cancel-btn {
+    background: none;
+    border: 1px solid #333;
+    color: #777;
+    border-radius: 6px;
+    padding: 8px 16px;
+    font-size: 0.85rem;
+    cursor: pointer;
+}
+.ep-cancel-btn:hover { border-color: #555; color: #aaa; }
+
+/* ─── Android Variant ───────────────────────────── */
+
+.ep-android-section {
+    margin-top: 4px;
+    padding: 8px 10px;
+    background: #0d1a2a;
+    border: 1px solid #1e3a5f;
+    border-radius: 6px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.ep-android-label {
+    font-size: 0.72rem;
+    font-weight: 600;
+    color: #3b82f6;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+
+.ep-android-registered {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.ep-android-badge {
+    font-size: 0.75rem;
+    color: #34d399;
+    font-weight: 600;
+    flex: 1;
+}
+
+.ep-android-add-btn,
+.ep-android-replace-btn,
+.ep-android-remove-btn {
+    border: none;
+    border-radius: 5px;
+    padding: 4px 10px;
+    font-size: 0.75rem;
+    cursor: pointer;
+    transition: background 0.15s;
+}
+
+.ep-android-add-btn {
+    background: #1e3a5f;
+    color: #93c5fd;
+    width: 100%;
+    text-align: center;
+    padding: 5px 10px;
+}
+.ep-android-add-btn:hover { background: #1e4a80; }
+
+.ep-android-replace-btn {
+    background: #1e3a5f;
+    color: #93c5fd;
+}
+.ep-android-replace-btn:hover { background: #1e4a80; }
+
+.ep-android-remove-btn {
+    background: #3b1212;
+    color: #fca5a5;
+}
+.ep-android-remove-btn:hover { background: #5a1a1a; }
+.ep-android-remove-btn:disabled { opacity: 0.5; cursor: default; }
+
 .hidden { display: none !important; }
