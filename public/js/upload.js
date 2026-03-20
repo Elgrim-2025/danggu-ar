@@ -132,7 +132,7 @@
                     <button class="preview-btn" data-idx="${idx}">미리보기</button>
                 </div>
             </div>
-            <div class="slot-android hidden" id="sa-${idx}">
+            <div class="slot-android" id="sa-${idx}">
                 <div class="slot-section-label android-label">Android WebM alpha <span class="label-opt">선택</span><small>투명 배경 .webm</small></div>
                 <div class="android-dz" id="adz-${idx}">
                     <input type="file" id="afi-${idx}" accept="video/webm,.webm" hidden>
@@ -252,8 +252,6 @@
         div.querySelector(`#ar-${idx}`).classList.toggle('hidden', !isVideo);
         if (!isVideo) { slot.audio = false; div.querySelector(`#aud-${idx}`).checked = false; }
 
-        // 비디오일 때만 Android WebM 섹션 표시
-        div.querySelector(`#sa-${idx}`).classList.toggle('hidden', !isVideo);
 
         const url = URL.createObjectURL(file);
         if (isVideo) {
@@ -284,10 +282,9 @@
         div.querySelector(`#fi-${idx}`).value = '';
         div.querySelector(`#aud-${idx}`).checked = false;
 
-        // Android 섹션 초기화
+        // Android 섹션 초기화 (숨기지 않고 내용만 리셋)
         const afi = div.querySelector(`#afi-${idx}`);
         if (afi) afi.value = '';
-        div.querySelector(`#sa-${idx}`).classList.add('hidden');
         div.querySelector(`#adz-${idx}`).classList.remove('hidden');
         div.querySelector(`#asel-${idx}`).classList.add('hidden');
         div.querySelector(`#afn-${idx}`).textContent = '';
