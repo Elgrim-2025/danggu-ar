@@ -3,7 +3,7 @@
 
     // ─── 접근 인증 ───────────────────────────────────────────────
 
-    let uploadSecret = sessionStorage.getItem('upload_secret') || '';
+    let uploadSecret = '';
 
     const loginOverlay  = document.getElementById('upload-login');
     const loginInput    = document.getElementById('upload-secret-input');
@@ -35,7 +35,6 @@
         loginBtn.textContent = '확인';
         if (ok) {
             uploadSecret = pw;
-            sessionStorage.setItem('upload_secret', pw);
             showApp();
         } else {
             loginError.classList.remove('hidden');
@@ -46,13 +45,6 @@
 
     loginInput.addEventListener('keydown', e => { if (e.key === 'Enter') loginBtn.click(); });
 
-    // sessionStorage에 저장된 비밀번호로 자동 확인 (탭 내 유지)
-    if (uploadSecret) {
-        verifyUploadSecret(uploadSecret).then(ok => {
-            if (ok) showApp();
-            else { uploadSecret = ''; sessionStorage.removeItem('upload_secret'); }
-        });
-    }
 
     // ─────────────────────────────────────────────────────────────
 
