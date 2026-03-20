@@ -403,7 +403,7 @@
     function setOverlaySize(srcW, srcH) {
         overlay.baseH = window.innerHeight * 0.85;
         overlay.baseW = overlay.baseH * (srcW / srcH);
-        overlay.x     = window.innerWidth  / 2;
+        overlay.x     = window.innerWidth  / 2 - 57;
         overlay.y     = window.innerHeight / 2;
         overlay.scale = 1.0;
     }
