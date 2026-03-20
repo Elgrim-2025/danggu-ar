@@ -136,7 +136,7 @@ async function handleUpload(request, env) {
       const rawName = (file.name || '').toString().trim().slice(0, 100).replace(/[<>"'&]/g, '');
 
       const isVideo = file.type.startsWith('video/');
-      files.push({
+      const fileRecord = {
         id: fileId,
         filename: rawName || `file${i + 1}`,
         type: file.type,
@@ -146,7 +146,22 @@ async function handleUpload(request, env) {
         similarity,
         smoothness,
         audio: isVideo && formData.get(`audio${i}`) === 'true'
-      });
+      };
+
+      // Android WebM alpha variant (비디오 슬롯만)
+      if (isVideo) {
+        const androidFile = formData.get(`androidFile${i}`);
+        if (androidFile && androidFile.name && androidFile.type === 'video/webm' && androidFile.size <= 100 * 1024 * 1024) {
+          const androidId = generateId();
+          await env.AR_BUCKET.put(`${androidId}.webm`, androidFile.stream(), { httpMetadata: { contentType: 'video/webm' } });
+          await env.AR_META.put(`file:${androidId}`, JSON.stringify({ ext: 'webm', type: 'video/webm' }));
+          uploaded.push({ id: androidId, ext: 'webm' });
+          fileRecord.androidId  = androidId;
+          fileRecord.androidExt = 'webm';
+        }
+      }
+
+      files.push(fileRecord);
     }
 
     if (files.length === 0) return jsonResponse({ error: '파일이 없습니다.' }, 400);

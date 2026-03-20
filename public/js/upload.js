@@ -57,7 +57,7 @@
     // ─────────────────────────────────────────────────────────────
 
     const MAX_SLOTS = 3;
-    const slots = []; // { file, color, similarity, smoothness, audio, mediaEl }
+    const slots = []; // { file, androidFile, color, similarity, smoothness, audio, mediaEl }
     let previewingIdx = -1;
     let previewingRAF = null;
 
@@ -87,48 +87,61 @@
 
     function createSlot() {
         const idx = slots.length;
-        slots.push({ file: null, color: '#00ff00', similarity: 0.4, smoothness: 0.1, audio: false, mediaEl: null });
+        slots.push({ file: null, androidFile: null, color: '#00ff00', similarity: 0.4, smoothness: 0.1, audio: false, mediaEl: null });
 
         const div = document.createElement('div');
         div.className = 'file-slot';
         div.dataset.idx = idx;
         div.innerHTML = `
-            <div class="slot-dropzone" id="dz-${idx}">
-                <p>파일을 여기에 끌어다 놓거나<br>아래 버튼으로 선택하세요</p>
-                <small>JPG &middot; PNG &middot; MP4 &middot; WEBM &middot; 100MB 이하</small>
-                <input type="file" id="fi-${idx}" accept="image/jpeg,image/png,video/mp4,video/webm" hidden>
-                <button class="select-btn" data-idx="${idx}">파일 선택</button>
+            <div class="slot-main">
+                <div class="slot-section-label">iOS / 공통 <span class="label-req">필수</span><small>JPG &middot; PNG &middot; MP4</small></div>
+                <div class="slot-dropzone" id="dz-${idx}">
+                    <p>파일을 여기에 끌어다 놓거나<br>아래 버튼으로 선택하세요</p>
+                    <input type="file" id="fi-${idx}" accept="image/jpeg,image/png,video/mp4" hidden>
+                    <button class="select-btn" data-idx="${idx}">파일 선택</button>
+                </div>
+                <div class="slot-config hidden" id="sc-${idx}">
+                    <div class="config-header">
+                        <span class="slot-num">파일 ${idx + 1}</span>
+                        <span class="slot-fname" id="fn-${idx}"></span>
+                        <button class="remove-btn" data-idx="${idx}">×</button>
+                    </div>
+                    <div class="audio-row hidden" id="ar-${idx}">
+                        <span class="audio-label">소리</span>
+                        <label class="switch">
+                            <input type="checkbox" id="aud-${idx}">
+                            <span class="switch-track"></span>
+                        </label>
+                    </div>
+                    <div class="color-presets" id="cp-${idx}">
+                        <button class="color-preset active" data-color="#00ff00" style="background:#00ff00" title="초록">초록</button>
+                        <button class="color-preset" data-color="#0000ff" style="background:#0000ff;color:#fff" title="파랑">파랑</button>
+                        <button class="color-preset" data-color="#ff0000" style="background:#ff0000;color:#fff" title="빨강">빨강</button>
+                        <button class="color-preset" data-color="#ffffff" style="background:#fff;border:1px solid #888" title="흰색">흰색</button>
+                        <button class="color-preset" data-color="#000000" style="background:#000;color:#fff" title="검정">검정</button>
+                        <input type="color" class="custom-color" id="cc-${idx}" value="#00ff00">
+                    </div>
+                    <div class="slider-group">
+                        <label>색상 허용 범위 <span class="range-val" id="sv-${idx}">0.40</span></label>
+                        <input type="range" id="ss-${idx}" min="0.1" max="0.8" step="0.05" value="0.4">
+                    </div>
+                    <div class="slider-group">
+                        <label>경계 부드러움 <span class="range-val" id="smv-${idx}">0.10</span></label>
+                        <input type="range" id="sms-${idx}" min="0.0" max="0.3" step="0.02" value="0.1">
+                    </div>
+                    <button class="preview-btn" data-idx="${idx}">미리보기</button>
+                </div>
             </div>
-            <div class="slot-config hidden" id="sc-${idx}">
-                <div class="config-header">
-                    <span class="slot-num">파일 ${idx + 1}</span>
-                    <span class="slot-fname" id="fn-${idx}"></span>
-                    <button class="remove-btn" data-idx="${idx}">×</button>
+            <div class="slot-android hidden" id="sa-${idx}">
+                <div class="slot-section-label android-label">Android WebM alpha <span class="label-opt">선택</span><small>투명 배경 .webm</small></div>
+                <div class="android-dz" id="adz-${idx}">
+                    <input type="file" id="afi-${idx}" accept="video/webm,.webm" hidden>
+                    <button class="android-select-btn" data-idx="${idx}">파일 선택</button>
                 </div>
-                <div class="audio-row hidden" id="ar-${idx}">
-                    <span class="audio-label">소리</span>
-                    <label class="switch">
-                        <input type="checkbox" id="aud-${idx}">
-                        <span class="switch-track"></span>
-                    </label>
+                <div class="android-selected hidden" id="asel-${idx}">
+                    <span class="android-fname" id="afn-${idx}"></span>
+                    <button class="android-clear-btn" data-idx="${idx}">×</button>
                 </div>
-                <div class="color-presets" id="cp-${idx}">
-                    <button class="color-preset active" data-color="#00ff00" style="background:#00ff00" title="초록">초록</button>
-                    <button class="color-preset" data-color="#0000ff" style="background:#0000ff;color:#fff" title="파랑">파랑</button>
-                    <button class="color-preset" data-color="#ff0000" style="background:#ff0000;color:#fff" title="빨강">빨강</button>
-                    <button class="color-preset" data-color="#ffffff" style="background:#fff;border:1px solid #888" title="흰색">흰색</button>
-                    <button class="color-preset" data-color="#000000" style="background:#000;color:#fff" title="검정">검정</button>
-                    <input type="color" class="custom-color" id="cc-${idx}" value="#00ff00">
-                </div>
-                <div class="slider-group">
-                    <label>색상 허용 범위 <span class="range-val" id="sv-${idx}">0.40</span></label>
-                    <input type="range" id="ss-${idx}" min="0.1" max="0.8" step="0.05" value="0.4">
-                </div>
-                <div class="slider-group">
-                    <label>경계 부드러움 <span class="range-val" id="smv-${idx}">0.10</span></label>
-                    <input type="range" id="sms-${idx}" min="0.0" max="0.3" step="0.02" value="0.1">
-                </div>
-                <button class="preview-btn" data-idx="${idx}">미리보기</button>
             </div>`;
         slotsContainer.appendChild(div);
         bindEvents(idx, div);
@@ -189,13 +202,37 @@
         });
 
         previewBtn.addEventListener('click', () => showPreview(idx));
+
+        // Android WebM
+        const androidSelectBtn = div.querySelector('.android-select-btn');
+        const androidClearBtn  = div.querySelector('.android-clear-btn');
+        const afi              = div.querySelector(`#afi-${idx}`);
+
+        androidSelectBtn.addEventListener('click', () => afi.click());
+        afi.addEventListener('change', e => {
+            const file = e.target.files[0];
+            if (!file) return;
+            if (file.type !== 'video/webm') { alert('WebM 파일만 선택 가능합니다.'); afi.value = ''; return; }
+            if (file.size > 100 * 1024 * 1024) { alert('파일 크기는 100MB 이하여야 합니다.'); afi.value = ''; return; }
+            slots[idx].androidFile = file;
+            div.querySelector(`#adz-${idx}`).classList.add('hidden');
+            div.querySelector(`#asel-${idx}`).classList.remove('hidden');
+            div.querySelector(`#afn-${idx}`).textContent = `${file.name} (${(file.size / 1024 / 1024).toFixed(1)}MB)`;
+        });
+        androidClearBtn.addEventListener('click', () => {
+            slots[idx].androidFile = null;
+            afi.value = '';
+            div.querySelector(`#adz-${idx}`).classList.remove('hidden');
+            div.querySelector(`#asel-${idx}`).classList.add('hidden');
+            div.querySelector(`#afn-${idx}`).textContent = '';
+        });
     }
 
     // ─── 파일 선택 ───────────────────────────────────────────────
 
     function selectFile(idx, file) {
-        const allowed = ['image/jpeg', 'image/png', 'video/mp4', 'video/webm'];
-        if (!allowed.includes(file.type)) { alert('지원하지 않는 파일 형식입니다.\n(jpg, png, mp4, webm만 가능)'); return; }
+        const allowed = ['image/jpeg', 'image/png', 'video/mp4'];
+        if (!allowed.includes(file.type)) { alert('지원하지 않는 파일 형식입니다.\n(jpg, png, mp4만 가능)'); return; }
         if (file.size > 100 * 1024 * 1024) { alert('파일 크기는 100MB 이하여야 합니다.'); return; }
 
         const slot = slots[idx];
@@ -214,6 +251,9 @@
         const isVideo = file.type.startsWith('video/');
         div.querySelector(`#ar-${idx}`).classList.toggle('hidden', !isVideo);
         if (!isVideo) { slot.audio = false; div.querySelector(`#aud-${idx}`).checked = false; }
+
+        // 비디오일 때만 Android WebM 섹션 표시
+        div.querySelector(`#sa-${idx}`).classList.toggle('hidden', !isVideo);
 
         const url = URL.createObjectURL(file);
         if (isVideo) {
@@ -236,13 +276,21 @@
             slot.mediaEl.pause();
             URL.revokeObjectURL(slot.mediaEl.src);
         }
-        slot.file = null; slot.mediaEl = null; slot.audio = false;
+        slot.file = null; slot.mediaEl = null; slot.audio = false; slot.androidFile = null;
 
         const div = slotsContainer.querySelector(`[data-idx="${idx}"]`);
         div.querySelector(`#dz-${idx}`).classList.remove('hidden');
         div.querySelector(`#sc-${idx}`).classList.add('hidden');
         div.querySelector(`#fi-${idx}`).value = '';
         div.querySelector(`#aud-${idx}`).checked = false;
+
+        // Android 섹션 초기화
+        const afi = div.querySelector(`#afi-${idx}`);
+        if (afi) afi.value = '';
+        div.querySelector(`#sa-${idx}`).classList.add('hidden');
+        div.querySelector(`#adz-${idx}`).classList.remove('hidden');
+        div.querySelector(`#asel-${idx}`).classList.add('hidden');
+        div.querySelector(`#afn-${idx}`).textContent = '';
 
         if (previewingIdx === idx) {
             previewingIdx = -1;
@@ -352,6 +400,7 @@
                 fd.append(`similarity${i}`, String(slot.similarity));
                 fd.append(`smoothness${i}`, String(slot.smoothness));
                 fd.append(`audio${i}`, String(slot.audio));
+                if (slot.androidFile) fd.append(`androidFile${i}`, slot.androidFile);
             });
 
             progressFill.style.width = '5%';
