@@ -31,6 +31,9 @@ export default {
     const metaMatch = path.match(/^\/api\/meta\/([a-z0-9]+)$/);
     if (metaMatch && request.method === 'GET') return handleGetMeta(env, metaMatch[1]);
 
+    const statsMatch = path.match(/^\/api\/stats\/([a-z0-9]+)$/);
+    if (statsMatch && request.method === 'GET') return handleGetStats(request, env, statsMatch[1]);
+
     const arMatch = path.match(/^\/ar\/([a-z0-9]+)$/);
     if (arMatch) return serveHtml(env, request, '/ar.html');
 
@@ -279,9 +282,42 @@ async function handleGetMeta(env, id) {
     const metaStr = await env.AR_META.get(id);
     if (!metaStr) return jsonResponse({ error: '콘텐츠를 찾을 수 없습니다.' }, 404);
 
+    // 총 조회수 + 일별 조회수 증가 (fire-and-forget)
+    const today = new Date().toISOString().slice(0, 10);
+    Promise.all([
+      env.AR_META.get('views:' + id),
+      env.AR_META.get('daily:' + id + ':' + today),
+    ]).then(([total, daily]) => Promise.all([
+      env.AR_META.put('views:' + id, String(parseInt(total || '0') + 1)),
+      env.AR_META.put('daily:' + id + ':' + today, String(parseInt(daily || '0') + 1)),
+    ])).catch(() => {});
+
     return jsonResponse(JSON.parse(metaStr));
   } catch (err) {
     return jsonResponse({ error: '메타데이터 조회 실패' }, 500);
+  }
+}
+
+// ─── Stats Handler ───────────────────────────────────────────────
+
+async function handleGetStats(request, env, id) {
+  const secret = request.headers.get('X-Delete-Secret');
+  if (!await verifySecret(secret, env.DELETE_SECRET)) return jsonResponse({ error: '인증 실패' }, 403, false);
+
+  try {
+    const prefix = 'daily:' + id + ':';
+    const listed = await env.AR_META.list({ prefix, limit: 365 });
+    const entries = await Promise.all(
+      listed.keys.map(async k => ({
+        date: k.name.slice(prefix.length),
+        count: parseInt(await env.AR_META.get(k.name) || '0'),
+      }))
+    );
+    const stats = {};
+    for (const e of entries) stats[e.date] = e.count;
+    return jsonResponse({ stats }, 200, false);
+  } catch (err) {
+    return jsonResponse({ error: '통계 조회 실패' }, 500, false);
   }
 }
 
@@ -299,7 +335,10 @@ async function handleList(request, env) {
     let cursor = undefined;
     do {
       const result = await env.AR_META.list({ cursor, limit: 1000 });
-      const validKeys = result.keys.filter(k => !k.name.startsWith('file:') && !k.name.startsWith('rl:'));
+      const validKeys = result.keys.filter(k =>
+        !k.name.startsWith('file:') && !k.name.startsWith('rl:') &&
+        !k.name.startsWith('views:') && !k.name.startsWith('daily:')
+      );
       // 순차 읽기(N+1) 대신 병렬 읽기
       const metas = await Promise.all(validKeys.map(k => env.AR_META.get(k.name).catch(() => null)));
       for (const metaStr of metas) {
@@ -309,6 +348,13 @@ async function handleList(request, env) {
     } while (cursor);
 
     groups.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+
+    // 조회수 병렬 조회
+    const viewCounts = await Promise.all(
+      groups.map(g => env.AR_META.get('views:' + g.id).catch(() => null))
+    );
+    groups.forEach((g, i) => { g.views = parseInt(viewCounts[i] || '0'); });
+
     return jsonResponse({ groups }, 200, false);
   } catch (err) {
     return jsonResponse({ error: '목록 조회 실패' }, 500, false);

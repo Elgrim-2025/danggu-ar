@@ -44,6 +44,7 @@ function renderGroups(groups) {
         const card = document.createElement('div');
         card.className = 'card';
         const date  = g.createdAt ? new Date(g.createdAt).toLocaleString('ko-KR') : '날짜 없음';
+        const views = g.views || 0;
         const title = g.title || '(제목 없음)';
         const arUrl = `${location.origin}/ar/${g.id}`;
         const fileItems = g.files.map(f => {
@@ -61,15 +62,17 @@ function renderGroups(groups) {
             <div class="card-top">
                 <div class="card-info">
                     <div class="card-title">${escHtml(title)}</div>
-                    <div class="card-date">${date}</div>
+                    <div class="card-date">${date} &nbsp;·&nbsp; 조회수 ${views.toLocaleString()}회</div>
                     <div class="thumb-row">${previews}</div>
                     <div class="card-files">${fileItems}</div>
                 </div>
                 <div class="card-btns">
                     <button class="edit-btn">편집</button>
+                    <button class="stats-btn">통계</button>
                     <button class="del-btn">삭제</button>
                 </div>
             </div>
+            <div class="stats-panel hidden"></div>
             <div class="card-link">
                 <input type="text" readonly value="${arUrl}">
                 <button class="copy-btn">복사</button>
@@ -82,6 +85,7 @@ function renderGroups(groups) {
             openEditPanel(g, card);
         });
         card.querySelector('.del-btn').addEventListener('click', () => deleteGroup(g.id, card));
+        card.querySelector('.stats-btn').addEventListener('click', () => toggleStats(g.id, card));
         card.querySelector('.copy-btn').addEventListener('click', () => {
             navigator.clipboard.writeText(arUrl);
             const btn = card.querySelector('.copy-btn');
@@ -399,4 +403,76 @@ async function deleteGroup(id, card) {
 
 function escHtml(str) {
     return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ─── 통계 그래프 ────────────────────────────────────────────────
+
+async function toggleStats(id, card) {
+    const panel = card.querySelector('.stats-panel');
+    const btn   = card.querySelector('.stats-btn');
+    if (!panel.classList.contains('hidden')) {
+        panel.classList.add('hidden');
+        btn.textContent = '통계';
+        return;
+    }
+    btn.textContent = '로딩 중...';
+    btn.disabled = true;
+    try {
+        const res = await fetch('/api/stats/' + id, { headers: { 'X-Delete-Secret': secret } });
+        if (!res.ok) throw new Error();
+        const { stats } = await res.json();
+        panel.innerHTML = renderStatsChart(stats);
+        panel.classList.remove('hidden');
+        btn.textContent = '통계 닫기';
+    } catch {
+        alert('통계 조회 실패');
+        btn.textContent = '통계';
+    }
+    btn.disabled = false;
+}
+
+function renderStatsChart(stats) {
+    const days = [];
+    for (let i = 29; i >= 0; i--) {
+        const d = new Date();
+        d.setDate(d.getDate() - i);
+        const key = d.toISOString().slice(0, 10);
+        days.push({ date: key, count: stats[key] || 0 });
+    }
+    const maxCount = Math.max(...days.map(d => d.count), 1);
+
+    const W = 600, H = 150;
+    const cX = 36, cY = 12, cW = 552, cH = 90;
+    const barW = cW / 30;
+    const gap  = 3;
+
+    const bars = days.map((d, i) => {
+        const barH = Math.max(2, Math.round((d.count / maxCount) * cH));
+        const x = cX + i * barW + gap / 2;
+        const y = cY + cH - barH;
+        const w = barW - gap;
+        const fill = d.count > 0 ? '#6366f1' : '#e5e7eb';
+        return `<rect x="${x.toFixed(1)}" y="${y}" width="${w.toFixed(1)}" height="${barH}" fill="${fill}" rx="2"><title>${d.date}: ${d.count}회</title></rect>`;
+    }).join('');
+
+    const xLabels = [];
+    [0, 5, 10, 15, 20, 25, 29].forEach(i => {
+        const x = (cX + i * barW + barW / 2).toFixed(1);
+        xLabels.push(`<text x="${x}" y="${cY + cH + 16}" text-anchor="middle" font-size="9" fill="#9ca3af">${days[i].date.slice(5)}</text>`);
+    });
+
+    const yLines = [0.25, 0.5, 0.75, 1].map(r => {
+        const y = (cY + cH - r * cH).toFixed(1);
+        const label = Math.round(maxCount * r);
+        return `<line x1="${cX}" y1="${y}" x2="${cX + cW}" y2="${y}" stroke="#f3f4f6" stroke-width="1"/>
+<text x="${(cX - 4)}" y="${y}" text-anchor="end" dominant-baseline="middle" font-size="9" fill="#9ca3af">${label}</text>`;
+    }).join('');
+
+    const axisLine = `<line x1="${cX}" y1="${cY + cH}" x2="${cX + cW}" y2="${cY + cH}" stroke="#e5e7eb" stroke-width="1"/>`;
+    const total = days.reduce((s, d) => s + d.count, 0);
+    const summary = `<text x="${cX + cW}" y="${cY - 2}" text-anchor="end" font-size="10" fill="#6b7280">최근 30일 합계: ${total.toLocaleString()}회</text>`;
+
+    return `<div style="padding:12px 0 4px">
+<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;display:block;">${yLines}${axisLine}${bars}${xLabels.join('')}${summary}</svg>
+</div>`;
 }
