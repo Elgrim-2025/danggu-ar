@@ -539,29 +539,8 @@
             ctx.globalAlpha = 1;
         }
 
-        const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
         const filename = 'ar-capture-' + Date.now() + '.png';
-
-        canvas.toBlob(async (blob) => {
-            const url = URL.createObjectURL(blob);
-            const shareFile = new File([blob], filename, { type: 'image/png' });
-            if (isIOS) {
-                if (navigator.canShare && navigator.canShare({ files: [shareFile] })) {
-                    try { await navigator.share({ files: [shareFile], title: filename }); }
-                    catch (err) { if (err.name !== 'AbortError') window.open(url, '_blank'); }
-                } else {
-                    window.open(url, '_blank');
-                }
-            } else {
-                const link = document.createElement('a');
-                link.download = filename;
-                link.href = url;
-                document.body.appendChild(link);
-                link.click();
-                document.body.removeChild(link);
-            }
-            setTimeout(() => URL.revokeObjectURL(url), 1000);
-        }, 'image/png');
+        canvas.toBlob(blob => showSaveOverlay(blob, filename), 'image/png');
     }
 
     function drawVideoCover(ctx, video, w, h, mirror) {
@@ -900,8 +879,10 @@
     function showSaveOverlay(blob, filename) {
         const url         = URL.createObjectURL(blob);
         const isIOS       = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+        const isImage     = blob.type.startsWith('image/');
         const saveOverlay = document.getElementById('save-overlay');
         const link        = document.getElementById('save-link');
+        const shareBtn    = document.getElementById('share-btn');
         const msg         = document.getElementById('save-msg');
         const progress    = document.getElementById('convert-progress');
         const closeBtn    = document.getElementById('save-close-btn');
@@ -910,15 +891,18 @@
         link.classList.remove('hidden');
         link.href = url;
 
+        const shareFile   = new File([blob], filename, { type: blob.type });
+        const canFileShare = navigator.canShare && navigator.canShare({ files: [shareFile] });
+
         if (isIOS) {
-            const shareFile   = new File([blob], filename, { type: 'video/mp4' });
-            const canWebShare = navigator.canShare && navigator.canShare({ files: [shareFile] });
-            if (canWebShare) {
+            // iOS: 저장 버튼이 share sheet를 열어 저장+공유 모두 지원
+            shareBtn.classList.add('hidden');
+            if (canFileShare) {
                 link.removeAttribute('download');
                 link.removeAttribute('href');
                 link.removeAttribute('target');
-                link.textContent = '사진 앱에 저장';
-                msg.textContent  = '완료! 버튼을 눌러 사진 앱에 저장하세요.';
+                link.textContent = isImage ? '저장 / 공유' : '저장 / 공유';
+                msg.textContent  = '완료! 저장하거나 다른 앱으로 공유하세요.';
                 link.onclick = async (e) => {
                     e.preventDefault();
                     try { await navigator.share({ files: [shareFile], title: filename }); }
@@ -929,20 +913,32 @@
                 link.href    = url;
                 link.target  = '_blank';
                 link.onclick = null;
-                link.textContent = '영상 열기';
-                msg.textContent  = '완료! 열기 후 공유 버튼 → 사진 앱에 저장';
+                link.textContent = isImage ? '이미지 열기' : '영상 열기';
+                msg.textContent  = '완료! 열기 후 공유 버튼 → 저장';
             }
         } else {
+            // Android/기타: 저장(다운로드) + 공유하기(share sheet) 별도 표시
             link.setAttribute('download', filename);
             link.target  = '_self';
             link.onclick = null;
-            link.textContent = '영상 저장하기';
-            msg.textContent  = '녹화 완료! 아래 버튼을 눌러 저장하세요.';
+            link.textContent = isImage ? '사진 저장하기' : '영상 저장하기';
+            msg.textContent  = isImage ? '촬영 완료!' : '녹화 완료!';
+
+            if (canFileShare) {
+                shareBtn.classList.remove('hidden');
+                shareBtn.onclick = async () => {
+                    try { await navigator.share({ files: [shareFile], title: filename }); }
+                    catch (err) { if (err.name !== 'AbortError') alert('공유를 지원하지 않는 환경입니다.'); }
+                };
+            } else {
+                shareBtn.classList.add('hidden');
+            }
         }
 
         saveOverlay.classList.remove('hidden');
         closeBtn.onclick = () => {
             saveOverlay.classList.add('hidden');
+            shareBtn.classList.add('hidden');
             URL.revokeObjectURL(url);
         };
     }
