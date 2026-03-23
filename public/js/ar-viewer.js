@@ -705,7 +705,6 @@
                 cancelAnimationFrame(recAnimId);
                 recordBtn.classList.remove('recording');
 
-                // 컴포짓 캔버스 스트림 트랙 종료 (메모리/배터리 해제)
                 if (recStream) {
                     recStream.getTracks().forEach(t => t.stop());
                     recStream = null;
@@ -891,21 +890,24 @@
         link.classList.remove('hidden');
         link.href = url;
 
-        const shareFile   = new File([blob], filename, { type: blob.type });
-        const canFileShare = navigator.canShare && navigator.canShare({ files: [shareFile] });
+        // 공유용: 타임스탬프 없는 깔끔한 이름 + 정규화된 MIME 타입
+        const shareTitle    = 'AR 포토존';
+        const shareFilename = isImage ? '사진.png' : '영상.mp4';
+        const shareType     = isImage ? 'image/png' : 'video/mp4';
+        const shareFile     = new File([blob], shareFilename, { type: shareType });
+        const canFileShare  = navigator.canShare && navigator.canShare({ files: [shareFile] });
 
         if (isIOS) {
-            // iOS: 저장 버튼이 share sheet를 열어 저장+공유 모두 지원
             shareBtn.classList.add('hidden');
             if (canFileShare) {
                 link.removeAttribute('download');
                 link.removeAttribute('href');
                 link.removeAttribute('target');
-                link.textContent = isImage ? '저장 / 공유' : '저장 / 공유';
+                link.textContent = '저장 / 공유';
                 msg.textContent  = '완료! 저장하거나 다른 앱으로 공유하세요.';
                 link.onclick = async (e) => {
                     e.preventDefault();
-                    try { await navigator.share({ files: [shareFile], title: filename }); }
+                    try { await navigator.share({ files: [shareFile], title: shareTitle }); }
                     catch (err) { if (err.name !== 'AbortError') window.open(url, '_blank'); }
                 };
             } else {
@@ -917,18 +919,25 @@
                 msg.textContent  = '완료! 열기 후 공유 버튼 → 저장';
             }
         } else {
-            // Android/기타: 저장(다운로드) + 공유하기(share sheet) 별도 표시
             link.setAttribute('download', filename);
             link.target  = '_self';
             link.onclick = null;
             link.textContent = isImage ? '사진 저장하기' : '영상 저장하기';
             msg.textContent  = isImage ? '촬영 완료!' : '녹화 완료!';
 
-            if (canFileShare) {
+            if (navigator.share) {
                 shareBtn.classList.remove('hidden');
                 shareBtn.onclick = async () => {
-                    try { await navigator.share({ files: [shareFile], title: filename }); }
-                    catch (err) { if (err.name !== 'AbortError') alert('공유를 지원하지 않는 환경입니다.'); }
+                    try {
+                        if (canFileShare) {
+                            await navigator.share({ files: [shareFile], title: shareTitle });
+                        } else {
+                            alert('이 기기에서는 파일 직접 공유가 지원되지 않습니다.\n저장하기로 저장 후 갤러리에서 공유해보세요.');
+                        }
+                    } catch (err) {
+                        if (err.name === 'AbortError') return;
+                        alert('공유에 실패했습니다.\n저장하기로 저장 후 갤러리에서 공유해보세요.');
+                    }
                 };
             } else {
                 shareBtn.classList.add('hidden');

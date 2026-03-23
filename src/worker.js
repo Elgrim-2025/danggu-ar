@@ -282,15 +282,18 @@ async function handleGetMeta(env, id) {
     const metaStr = await env.AR_META.get(id);
     if (!metaStr) return jsonResponse({ error: '콘텐츠를 찾을 수 없습니다.' }, 404);
 
-    // 총 조회수 + 일별 조회수 증가 (fire-and-forget)
+    // 총 조회수 + 일별 조회수 증가
     const today = new Date().toISOString().slice(0, 10);
-    Promise.all([
-      env.AR_META.get('views:' + id),
-      env.AR_META.get('daily:' + id + ':' + today),
-    ]).then(([total, daily]) => Promise.all([
-      env.AR_META.put('views:' + id, String(parseInt(total || '0') + 1)),
-      env.AR_META.put('daily:' + id + ':' + today, String(parseInt(daily || '0') + 1)),
-    ])).catch(() => {});
+    try {
+      const [total, daily] = await Promise.all([
+        env.AR_META.get('views:' + id),
+        env.AR_META.get('daily:' + id + ':' + today),
+      ]);
+      await Promise.all([
+        env.AR_META.put('views:' + id, String(parseInt(total || '0') + 1)),
+        env.AR_META.put('daily:' + id + ':' + today, String(parseInt(daily || '0') + 1)),
+      ]);
+    } catch (_) {}
 
     return jsonResponse(JSON.parse(metaStr));
   } catch (err) {
