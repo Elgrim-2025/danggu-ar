@@ -38,9 +38,7 @@ export default {
 
     if (path === '/manage') return serveHtml(env, request, '/manage.html');
 
-    if (path === '/' || path === '') {
-      return new Response(null, { status: 302, headers: { 'Location': '/ar/8qtbe0sq' } });
-    }
+    if (path === '/' || path === '') return serveHtml(env, request, '/index.html');
 
     return env.ASSETS.fetch(request);
   }

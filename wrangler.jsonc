@@ -1,5 +1,5 @@
 {
-  "name": "photo-ar-website",
+  "name": "danggu-ar",
   "compatibility_date": "2026-02-09",
   "main": "src/worker.js",
   "assets": {
@@ -10,13 +10,13 @@
   "r2_buckets": [
     {
       "binding": "AR_BUCKET",
-      "bucket_name": "ar-uploads"
+      "bucket_name": "danggu-ar-uploads"
     }
   ],
   "kv_namespaces": [
     {
       "binding": "AR_META",
-      "id": "98f8b6fb7a0e4d69b5f64fad00b75b63"
+      "id": "ffa9c74587224e8a8eb366b379f7922f"
     }
   ]
 }
