@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "dev",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["wrangler", "dev", "--ip", "0.0.0.0", "--no-live-reload", "--var", "UPLOAD_SECRET:202508", "--var", "DELETE_SECRET:202508"],
+      "port": 8787
+    }
+  ]
+}

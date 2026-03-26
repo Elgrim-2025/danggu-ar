@@ -102,6 +102,20 @@
     // ─── 플랫폼 ──────────────────────────────────────────────────
     const isAndroid = /Android/i.test(navigator.userAgent);
 
+    // ─── WebXR 상태 ────────────────────────────────────────────
+    let xrMode = false;
+    let xrSession = null;
+    let xrRefSpace = null;
+    let xrHitTestSource = null;
+    let xrProgram = null;
+    let xrUniforms = {};
+    let xrPlaced = false;
+    let xrPlacementMatrix = null;   // Float32Array(16)
+    let xrReticleMatrix = null;
+    let xrReticleVisible = false;
+    let xrVideoScale = 0.3;        // 미터 단위
+    let xrVideoAspect = 16 / 9;
+
     // ─── 녹화 ────────────────────────────────────────────────────
     let mediaRecorder = null, recordedChunks = [], recStream = null;
     let isRecording = false;
@@ -147,6 +161,16 @@
 
             startBtn.disabled = false;
             startBtn.textContent = '시작하기';
+
+            // WebXR 지원 감지
+            if (navigator.xr) {
+                navigator.xr.isSessionSupported('immersive-ar').then(supported => {
+                    if (supported) {
+                        const xrBtn = document.getElementById('xr-start-btn');
+                        if (xrBtn) xrBtn.classList.remove('hidden');
+                    }
+                }).catch(() => {});
+            }
         } catch (e) {
             showError('네트워크 오류가 발생했습니다.');
         }
@@ -234,7 +258,8 @@
         gl = glCanvas.getContext('webgl2', {
             alpha: true,
             premultipliedAlpha: false,
-            preserveDrawingBuffer: true   // 캡처/녹화용
+            preserveDrawingBuffer: true,  // 캡처/녹화용
+            xrCompatible: true
         });
         if (!gl) throw new Error('WebGL2 미지원');
 
@@ -1082,16 +1107,345 @@
         };
     }
 
+    // ═══════════════════════════════════════════════════════════════
+    // ═══ WebXR 평면 트래킹 모드 ═══════════════════════════════════
+    // ═══════════════════════════════════════════════════════════════
+
+    // ─── 4×4 행렬 연산 헬퍼 ────────────────────────────────────
+    function mat4Multiply(a, b) {
+        const o = new Float32Array(16);
+        for (let i = 0; i < 4; i++) {
+            for (let j = 0; j < 4; j++) {
+                o[j * 4 + i] = a[i] * b[j * 4] + a[4 + i] * b[j * 4 + 1] +
+                                a[8 + i] * b[j * 4 + 2] + a[12 + i] * b[j * 4 + 3];
+            }
+        }
+        return o;
+    }
+
+    function mat4Scale(sx, sy, sz) {
+        const m = new Float32Array(16);
+        m[0] = sx; m[5] = sy; m[10] = sz; m[15] = 1;
+        return m;
+    }
+
+    // ─── XR 셰이더 프로그램 초기화 ─────────────────────────────
+    function initXRProgram() {
+        // XR 버텍스 셰이더: MVP 기반, 쿼드를 XZ 평면에 눕힘
+        const xrVsrc = `#version 300 es
+        in vec2 a_pos;
+        uniform mat4 u_mvp;
+        out vec2 vUv;
+        void main() {
+            vUv = vec2(a_pos.x * 0.5 + 0.5, 1.0 - (a_pos.y * 0.5 + 0.5));
+            gl_Position = u_mvp * vec4(a_pos.x, 0.0, a_pos.y, 1.0);
+        }`;
+
+        // 프래그먼트 셰이더는 기존 것 그대로 재사용
+        const xrFsrc = `#version 300 es
+        precision mediump float;
+        uniform sampler2D u_tex;
+        uniform vec3 u_key;
+        uniform float u_sim;
+        uniform float u_smooth;
+        uniform bool u_useChroma;
+        uniform float u_opacity;
+        in vec2 vUv;
+        out vec4 outColor;
+        vec2 rgb2uv(vec3 c) {
+            return vec2(
+                c.r * -0.169 + c.g * -0.331 + c.b * 0.5 + 0.5,
+                c.r * 0.5   + c.g * -0.419  + c.b * -0.081 + 0.5
+            );
+        }
+        void main() {
+            vec4 col = texture(u_tex, vUv);
+            if (u_useChroma) {
+                vec2 cv = rgb2uv(col.rgb) - rgb2uv(u_key);
+                float d = sqrt(dot(cv, cv));
+                float a = smoothstep(u_sim, u_sim + u_smooth, d);
+                outColor = vec4(col.rgb, col.a * a * u_opacity);
+            } else {
+                outColor = vec4(col.rgb, col.a * u_opacity);
+            }
+        }`;
+
+        const vs = compileShader(gl.VERTEX_SHADER, xrVsrc);
+        const fs = compileShader(gl.FRAGMENT_SHADER, xrFsrc);
+        xrProgram = gl.createProgram();
+        gl.attachShader(xrProgram, vs);
+        gl.attachShader(xrProgram, fs);
+        gl.linkProgram(xrProgram);
+        if (!gl.getProgramParameter(xrProgram, gl.LINK_STATUS))
+            throw new Error(gl.getProgramInfoLog(xrProgram));
+
+        xrUniforms = {
+            mvp:       gl.getUniformLocation(xrProgram, 'u_mvp'),
+            tex:       gl.getUniformLocation(xrProgram, 'u_tex'),
+            key:       gl.getUniformLocation(xrProgram, 'u_key'),
+            sim:       gl.getUniformLocation(xrProgram, 'u_sim'),
+            smooth:    gl.getUniformLocation(xrProgram, 'u_smooth'),
+            useChroma: gl.getUniformLocation(xrProgram, 'u_useChroma'),
+            opacity:   gl.getUniformLocation(xrProgram, 'u_opacity'),
+        };
+
+        // a_pos attribute는 같은 VAO/VBO를 공유
+        const loc = gl.getAttribLocation(xrProgram, 'a_pos');
+        gl.bindVertexArray(glVao);
+        gl.enableVertexAttribArray(loc);
+    }
+
+    // ─── XR 세션 시작 ──────────────────────────────────────────
+    const xrStartBtn = document.getElementById('xr-start-btn');
+    const xrOverlay  = document.getElementById('xr-overlay');
+    const xrPlaceMsg = document.getElementById('xr-place-msg');
+    const xrExitBtn  = document.getElementById('xr-exit-btn');
+    const xrScaleInput   = document.getElementById('xr-scale');
+    const xrScaleVal     = document.getElementById('xr-scale-val');
+    const xrOpacityInput = document.getElementById('xr-opacity');
+    const xrOpacityVal   = document.getElementById('xr-opacity-val');
+    const xrControls     = document.getElementById('xr-controls');
+
+    if (xrStartBtn) {
+        xrStartBtn.addEventListener('click', async () => {
+            if (!arFiles.length) return;
+            xrStartBtn.disabled = true;
+
+            try {
+                // WebGL 초기화 (아직 안 했으면)
+                if (!gl) {
+                    initWebGL();
+                }
+                // XR 프로그램 초기화
+                if (!xrProgram) {
+                    initXRProgram();
+                }
+
+                // 파일 로드
+                if (!mediaVideoEl && arFiles[0].type.startsWith('video/')) {
+                    startScreen.classList.add('hidden');
+                    loadingScreen.classList.remove('hidden');
+                    await loadFile(0);
+                    loadingScreen.classList.add('hidden');
+                } else if (!mediaVideoEl) {
+                    startScreen.classList.add('hidden');
+                    loadingScreen.classList.remove('hidden');
+                    await loadFile(0);
+                    loadingScreen.classList.add('hidden');
+                }
+
+                // 영상 종횡비 저장
+                if (mediaVideoEl) {
+                    xrVideoAspect = mediaVideoEl.videoWidth / mediaVideoEl.videoHeight;
+                }
+
+                await startXRSession();
+            } catch (e) {
+                console.error('XR 세션 시작 실패:', e);
+                xrStartBtn.disabled = false;
+                showError('AR 배치 모드를 시작할 수 없습니다.\n' + (e.message || ''));
+            }
+        });
+    }
+
+    async function startXRSession() {
+        const sessionInit = {
+            requiredFeatures: ['hit-test', 'local'],
+            optionalFeatures: ['dom-overlay'],
+        };
+        if (xrOverlay) {
+            sessionInit.domOverlay = { root: xrOverlay };
+        }
+
+        xrSession = await navigator.xr.requestSession('immersive-ar', sessionInit);
+
+        // XR 렌더 레이어 설정
+        const glLayer = new XRWebGLLayer(xrSession, gl);
+        xrSession.updateRenderState({ baseLayer: glLayer });
+
+        // 참조 공간
+        xrRefSpace = await xrSession.requestReferenceSpace('local');
+
+        // Hit-test 소스 (뷰어 중심에서 레이 캐스트)
+        const viewerSpace = await xrSession.requestReferenceSpace('viewer');
+        xrHitTestSource = await xrSession.requestHitTestSource({ space: viewerSpace });
+
+        // 기존 렌더 루프 정지
+        if (animId) { cancelAnimationFrame(animId); animId = null; }
+
+        xrMode = true;
+        xrPlaced = false;
+        xrPlacementMatrix = null;
+        xrReticleVisible = false;
+
+        // UI 전환
+        startScreen.classList.add('hidden');
+        arContainer.classList.add('hidden');
+        if (xrOverlay) xrOverlay.classList.remove('hidden');
+        if (xrPlaceMsg) xrPlaceMsg.classList.remove('hidden');
+        if (xrControls) xrControls.classList.add('hidden');
+
+        // 세션 종료 이벤트
+        xrSession.addEventListener('end', onXRSessionEnd);
+
+        // 탭하여 배치
+        if (xrOverlay) {
+            xrOverlay.addEventListener('click', onXRTap);
+        }
+
+        // XR 렌더 루프 시작
+        xrSession.requestAnimationFrame(xrAnimate);
+    }
+
+    // ─── XR 탭하여 배치 ────────────────────────────────────────
+    function onXRTap(e) {
+        // UI 버튼 클릭은 무시
+        if (e.target.closest('button, input, label')) return;
+        if (xrPlaced || !xrReticleVisible || !xrReticleMatrix) return;
+
+        xrPlacementMatrix = new Float32Array(xrReticleMatrix);
+        xrPlaced = true;
+
+        // Hit-test 더 이상 불필요
+        if (xrHitTestSource) {
+            xrHitTestSource.cancel();
+            xrHitTestSource = null;
+        }
+
+        // UI 전환
+        if (xrPlaceMsg) xrPlaceMsg.classList.add('hidden');
+        if (xrControls) xrControls.classList.remove('hidden');
+    }
+
+    // ─── XR 렌더 루프 ─────────────────────────────────────────
+    function xrAnimate(time, frame) {
+        if (!xrSession) return;
+        xrSession.requestAnimationFrame(xrAnimate);
+
+        const glLayer = xrSession.renderState.baseLayer;
+        gl.bindFramebuffer(gl.FRAMEBUFFER, glLayer.framebuffer);
+        gl.clearColor(0, 0, 0, 0);
+        gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+
+        const pose = frame.getViewerPose(xrRefSpace);
+        if (!pose) return;
+
+        // 비디오 텍스처 업데이트
+        if (mediaVideoEl && mediaVideoEl.readyState >= 2) {
+            uploadTexture(mediaVideoEl);
+        }
+
+        // 배치 전: hit-test로 리티클 표시
+        if (!xrPlaced && xrHitTestSource) {
+            const hitResults = frame.getHitTestResults(xrHitTestSource);
+            if (hitResults.length > 0) {
+                const hitPose = hitResults[0].getPose(xrRefSpace);
+                xrReticleMatrix = hitPose.transform.matrix;
+                xrReticleVisible = true;
+            } else {
+                xrReticleVisible = false;
+            }
+        }
+
+        // 각 뷰에 대해 렌더링
+        for (const view of pose.views) {
+            const vp = glLayer.getViewport(view);
+            gl.viewport(vp.x, vp.y, vp.width, vp.height);
+
+            const projMatrix = view.projectionMatrix;
+            const viewMatrix = view.transform.inverse.matrix;
+
+            if (xrPlaced && xrPlacementMatrix) {
+                renderXRQuad(projMatrix, viewMatrix, xrPlacementMatrix, overlay.opacity);
+            } else if (xrReticleVisible && xrReticleMatrix) {
+                // 배치 전 미리보기 (반투명)
+                renderXRQuad(projMatrix, viewMatrix, xrReticleMatrix, 0.4);
+            }
+        }
+    }
+
+    // ─── XR 쿼드 렌더링 ───────────────────────────────────────
+    function renderXRQuad(projMatrix, viewMatrix, modelMatrix, opacity) {
+        const scaleX = xrVideoScale * xrVideoAspect;
+        const scaleZ = xrVideoScale;
+        const scaledModel = mat4Multiply(modelMatrix, mat4Scale(scaleX, 1, scaleZ));
+        const mv = mat4Multiply(viewMatrix, scaledModel);
+        const mvp = mat4Multiply(projMatrix, mv);
+
+        gl.useProgram(xrProgram);
+        gl.bindVertexArray(glVao);
+        gl.activeTexture(gl.TEXTURE0);
+        gl.bindTexture(gl.TEXTURE_2D, glTexture);
+
+        gl.uniformMatrix4fv(xrUniforms.mvp, false, mvp);
+        gl.uniform1i(xrUniforms.tex, 0);
+        gl.uniform3f(xrUniforms.key, overlay.color[0], overlay.color[1], overlay.color[2]);
+        gl.uniform1f(xrUniforms.sim, overlay.similarity);
+        gl.uniform1f(xrUniforms.smooth, overlay.smoothness);
+        gl.uniform1i(xrUniforms.useChroma, useChromaKey ? 1 : 0);
+        gl.uniform1f(xrUniforms.opacity, opacity);
+
+        gl.enable(gl.BLEND);
+        gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+        gl.drawElements(gl.TRIANGLES, 16 * 16 * 6, gl.UNSIGNED_SHORT, 0);
+    }
+
+    // ─── XR 세션 종료 ─────────────────────────────────────────
+    function onXRSessionEnd() {
+        xrMode = false;
+        xrSession = null;
+        xrPlaced = false;
+        xrPlacementMatrix = null;
+        xrHitTestSource = null;
+        xrReticleMatrix = null;
+        xrReticleVisible = false;
+
+        // 프레임버퍼 복원
+        gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+        onResize();
+
+        // UI 복원
+        if (xrOverlay) {
+            xrOverlay.classList.add('hidden');
+            xrOverlay.removeEventListener('click', onXRTap);
+        }
+        if (xrStartBtn) xrStartBtn.disabled = false;
+        startScreen.classList.remove('hidden');
+    }
+
+    // ─── XR UI 이벤트 ─────────────────────────────────────────
+    if (xrExitBtn) {
+        xrExitBtn.addEventListener('click', () => {
+            if (xrSession) xrSession.end();
+        });
+    }
+    if (xrScaleInput) {
+        xrScaleInput.addEventListener('input', () => {
+            const cm = parseInt(xrScaleInput.value);
+            xrVideoScale = cm / 100;
+            if (xrScaleVal) xrScaleVal.textContent = cm + 'cm';
+        });
+    }
+    if (xrOpacityInput) {
+        xrOpacityInput.addEventListener('input', () => {
+            const v = parseInt(xrOpacityInput.value);
+            overlay.opacity = v / 100;
+            if (xrOpacityVal) xrOpacityVal.textContent = v + '%';
+        });
+    }
+
     // ─── 페이지 종료 시 리소스 정리 ──────────────────────────────
     function cleanup() {
         cancelAnimationFrame(animId);
         releaseWakeLock();
+        if (xrSession) { xrSession.end().catch(() => {}); xrSession = null; }
         if (recStream)    { recStream.getTracks().forEach(t => t.stop()); recStream = null; }
         if (cameraStream) { cameraStream.getTracks().forEach(t => t.stop()); }
         if (mediaVideoEl) { mediaVideoEl.pause(); mediaVideoEl = null; }
         if (videoAudioCtx) { videoAudioCtx.close(); videoAudioCtx = null; }
         if (gl && glTexture) { gl.deleteTexture(glTexture); }
         if (gl && glProgram) { gl.deleteProgram(glProgram); }
+        if (gl && xrProgram) { gl.deleteProgram(xrProgram); }
         if (gl && glVao)     { gl.deleteVertexArray(glVao); }
         if (gl && glBuffer)  { gl.deleteBuffer(glBuffer); }
         _ffmpegCore = null;

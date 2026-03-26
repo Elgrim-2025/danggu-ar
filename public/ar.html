@@ -31,6 +31,7 @@
             <h1>포토존</h1>
             <p class="start-desc">카메라로 나만의 포토존을 체험해보세요</p>
             <button id="start-btn">시작하기</button>
+            <button id="xr-start-btn" class="hidden">AR 배치 모드</button>
             <p id="permission-status"></p>
         </div>
     </div>
@@ -135,6 +136,22 @@
             <div class="panel-row">
                 <label>투명도 <span id="opacity-val">100%</span></label>
                 <input type="range" id="opacity-range" min="0" max="100" step="1" value="100">
+            </div>
+        </div>
+    </div>
+
+    <!-- WebXR 오버레이 (dom-overlay) -->
+    <div id="xr-overlay" class="hidden">
+        <div id="xr-place-msg">바닥이나 책상을 비추세요<br><small>표면 감지 후 탭하여 배치</small></div>
+        <button id="xr-exit-btn">종료</button>
+        <div id="xr-controls" class="hidden">
+            <div class="panel-row">
+                <label>크기 <span id="xr-scale-val">30cm</span></label>
+                <input type="range" id="xr-scale" min="10" max="200" step="5" value="30">
+            </div>
+            <div class="panel-row">
+                <label>투명도 <span id="xr-opacity-val">100%</span></label>
+                <input type="range" id="xr-opacity" min="0" max="100" step="1" value="100">
             </div>
         </div>
     </div>
