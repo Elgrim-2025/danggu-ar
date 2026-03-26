@@ -1,40 +1,15 @@
-const loginSection = document.getElementById('login-section');
 const listSection  = document.getElementById('list-section');
-const secretInput  = document.getElementById('secret-input');
-const loginBtn     = document.getElementById('login-btn');
-const loginError   = document.getElementById('login-error');
-const logoutBtn    = document.getElementById('logout-btn');
 const groupList    = document.getElementById('group-list');
 const emptyMsg     = document.getElementById('empty-msg');
 
-let secret = '';
-
-loginBtn.addEventListener('click', () => {
-    secret = secretInput.value.trim();
-    if (!secret) return;
-    tryLoad();
-});
-
-secretInput.addEventListener('keydown', e => {
-    if (e.key === 'Enter') loginBtn.click();
-});
-
-logoutBtn.addEventListener('click', () => {
-    secret = '';
-    listSection.classList.add('hidden');
-    loginSection.classList.remove('hidden');
-    secretInput.value = '';
-});
-
 async function tryLoad() {
-    loginError.classList.add('hidden');
-    const res = await fetch('/api/list', { headers: { 'X-Delete-Secret': secret } });
-    if (res.status === 403) { loginError.classList.remove('hidden'); return; }
-    loginSection.classList.add('hidden');
+    const res = await fetch('/api/list');
     listSection.classList.remove('hidden');
     const data = await res.json();
     renderGroups(data.groups || []);
 }
+
+tryLoad();
 
 function renderGroups(groups) {
     groupList.innerHTML = '';
@@ -225,7 +200,7 @@ async function saveMetaEdits(g, panel, card) {
     try {
         const res = await fetch(`/api/project/${g.id}`, {
             method: 'PATCH',
-            headers: { 'Content-Type': 'application/json', 'X-Delete-Secret': secret },
+            headers: { 'Content-Type': 'application/json',  },
             body: JSON.stringify({ title, files: fileUpdates }),
         });
         if (res.ok) {
@@ -254,7 +229,7 @@ async function replaceFile(g, fileIndex, file, btn, card) {
     try {
         const res = await fetch(`/api/project/${g.id}/file/${fileIndex}`, {
             method: 'PATCH',
-            headers: { 'X-Delete-Secret': secret },
+            headers: {  },
             body: fd,
         });
         if (res.ok) {
@@ -316,7 +291,7 @@ async function uploadAndroidVariant(g, fileIndex, file, section) {
     try {
         const res = await fetch(`/api/project/${g.id}/file/${fileIndex}/android`, {
             method: 'PATCH',
-            headers: { 'X-Delete-Secret': secret },
+            headers: {  },
             body: fd,
         });
         if (res.ok) {
@@ -359,7 +334,7 @@ async function removeAndroidVariant(g, fileIndex, section) {
     try {
         const res = await fetch(`/api/project/${g.id}/file/${fileIndex}/android`, {
             method: 'DELETE',
-            headers: { 'X-Delete-Secret': secret },
+            headers: {  },
         });
         if (res.ok) {
             delete g.files[fileIndex].androidId;
@@ -392,7 +367,7 @@ async function deleteGroup(id, card) {
     const btn = card.querySelector('.del-btn');
     btn.textContent = '삭제 중...';
     btn.disabled = true;
-    const res = await fetch(`/api/delete/${id}`, { method: 'DELETE', headers: { 'X-Delete-Secret': secret } });
+    const res = await fetch(`/api/delete/${id}`, { method: 'DELETE', headers: {  } });
     if (res.ok) {
         card.classList.add('removing');
         setTimeout(() => { card.remove(); if (!groupList.querySelector('.card')) emptyMsg.classList.remove('hidden'); }, 300);
@@ -418,7 +393,7 @@ async function toggleStats(id, card) {
     btn.textContent = '로딩 중...';
     btn.disabled = true;
     try {
-        const res = await fetch('/api/stats/' + id, { headers: { 'X-Delete-Secret': secret } });
+        const res = await fetch('/api/stats/' + id, { headers: {  } });
         if (!res.ok) throw new Error();
         const { stats } = await res.json();
         panel.innerHTML = renderStatsChart(stats);

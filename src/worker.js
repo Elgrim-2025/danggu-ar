@@ -6,7 +6,6 @@ export default {
     if (request.method === 'OPTIONS') return handleCORS(path);
 
     if (path === '/api/upload' && request.method === 'POST') return handleUpload(request, env);
-    if (path === '/api/auth' && request.method === 'POST') return handleAuth(request, env);
     if (path === '/api/list' && request.method === 'GET') return handleList(request, env);
 
     // 25MB 초과로 ASSETS에 못 넣는 파일 → R2에서 직접 서빙
@@ -63,25 +62,6 @@ async function handleWasm(env) {
   }
 }
 
-// ─── Upload Auth Handler ─────────────────────────────────────────
-
-async function handleAuth(request, env) {
-  // 브루트포스 방지: IP당 5분에 최대 10회
-  const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
-  if (!await checkAuthRateLimit(env, ip)) return jsonResponse({ error: '요청이 너무 많습니다. 잠시 후 다시 시도하세요.' }, 429);
-  try {
-    const body = await request.json();
-    const password = (body && body.password) ? String(body.password) : '';
-    if (!password) return jsonResponse({ error: '비밀번호를 입력하세요.' }, 400);
-    if (!await verifySecret(password, env.UPLOAD_SECRET)) {
-      return jsonResponse({ error: '비밀번호가 틀렸습니다.' }, 403);
-    }
-    return jsonResponse({ ok: true });
-  } catch (_) {
-    return jsonResponse({ error: '잘못된 요청입니다.' }, 400);
-  }
-}
-
 // ─── Upload Handler ──────────────────────────────────────────────
 
 async function handleUpload(request, env) {
@@ -95,17 +75,6 @@ async function handleUpload(request, env) {
   }
 
   try {
-    // 업로드 인증 확인
-    const uploadAuth = request.headers.get('X-Upload-Auth');
-    if (!await verifySecret(uploadAuth, env.UPLOAD_SECRET)) {
-      return jsonResponse({ error: '인증이 필요합니다.' }, 401);
-    }
-
-    // 업로드 전용 레이트 리밋: IP당 10분에 5회
-    const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
-    if (!await checkUploadRateLimit(env, ip)) {
-      return jsonResponse({ error: '업로드 횟수를 초과했습니다. 10분 후 다시 시도하세요.' }, 429);
-    }
 
     const formData = await request.formData();
     const groupId = generateId();
@@ -306,8 +275,6 @@ async function handleGetMeta(env, id) {
 // ─── Stats Handler ───────────────────────────────────────────────
 
 async function handleGetStats(request, env, id) {
-  const secret = request.headers.get('X-Delete-Secret');
-  if (!await verifySecret(secret, env.DELETE_SECRET)) return jsonResponse({ error: '인증 실패' }, 403, false);
 
   try {
     const prefix = 'daily:' + id + ':';
@@ -329,11 +296,7 @@ async function handleGetStats(request, env, id) {
 // ─── List Handler ────────────────────────────────────────────────
 
 async function handleList(request, env) {
-  const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
-  if (!await checkRateLimit(env, ip)) return jsonResponse({ error: '요청이 너무 많습니다. 잠시 후 다시 시도하세요.' }, 429, false);
 
-  const secret = request.headers.get('X-Delete-Secret');
-  if (!await verifySecret(secret, env.DELETE_SECRET)) return jsonResponse({ error: '인증 실패' }, 403, false);
 
   try {
     const groups = [];
@@ -369,10 +332,7 @@ async function handleList(request, env) {
 // ─── Project Update Handler ──────────────────────────────────────
 
 async function handleProjectUpdate(request, env, groupId) {
-  const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
-  if (!await checkRateLimit(env, ip)) return jsonResponse({ error: '요청이 너무 많습니다.' }, 429, false);
-  const secret = request.headers.get('X-Delete-Secret');
-  if (!await verifySecret(secret, env.DELETE_SECRET)) return jsonResponse({ error: '인증 실패' }, 403, false);
+
   try {
     const metaStr = await env.AR_META.get(groupId);
     if (!metaStr) return jsonResponse({ error: '찾을 수 없습니다.' }, 404, false);
@@ -403,10 +363,7 @@ async function handleProjectUpdate(request, env, groupId) {
 // ─── File Replace Handler ────────────────────────────────────────
 
 async function handleFileReplace(request, env, groupId, fileIndex) {
-  const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
-  if (!await checkRateLimit(env, ip)) return jsonResponse({ error: '요청이 너무 많습니다.' }, 429, false);
-  const secret = request.headers.get('X-Delete-Secret');
-  if (!await verifySecret(secret, env.DELETE_SECRET)) return jsonResponse({ error: '인증 실패' }, 403, false);
+
   try {
     const metaStr = await env.AR_META.get(groupId);
     if (!metaStr) return jsonResponse({ error: '찾을 수 없습니다.' }, 404, false);
@@ -449,10 +406,7 @@ async function handleFileReplace(request, env, groupId, fileIndex) {
 // ─── Android Variant Upload Handler ─────────────────────────────
 
 async function handleAndroidVariantUpload(request, env, groupId, fileIndex) {
-  const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
-  if (!await checkRateLimit(env, ip)) return jsonResponse({ error: '요청이 너무 많습니다.' }, 429, false);
-  const secret = request.headers.get('X-Delete-Secret');
-  if (!await verifySecret(secret, env.DELETE_SECRET)) return jsonResponse({ error: '인증 실패' }, 403, false);
+
   try {
     const metaStr = await env.AR_META.get(groupId);
     if (!metaStr) return jsonResponse({ error: '찾을 수 없습니다.' }, 404, false);
@@ -489,10 +443,7 @@ async function handleAndroidVariantUpload(request, env, groupId, fileIndex) {
 // ─── Android Variant Delete Handler ─────────────────────────────
 
 async function handleAndroidVariantDelete(request, env, groupId, fileIndex) {
-  const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
-  if (!await checkRateLimit(env, ip)) return jsonResponse({ error: '요청이 너무 많습니다.' }, 429, false);
-  const secret = request.headers.get('X-Delete-Secret');
-  if (!await verifySecret(secret, env.DELETE_SECRET)) return jsonResponse({ error: '인증 실패' }, 403, false);
+
   try {
     const metaStr = await env.AR_META.get(groupId);
     if (!metaStr) return jsonResponse({ error: '찾을 수 없습니다.' }, 404, false);
@@ -517,11 +468,7 @@ async function handleAndroidVariantDelete(request, env, groupId, fileIndex) {
 // ─── Delete Handler ──────────────────────────────────────────────
 
 async function handleDelete(request, env, groupId) {
-  const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
-  if (!await checkRateLimit(env, ip)) return jsonResponse({ error: '요청이 너무 많습니다. 잠시 후 다시 시도하세요.' }, 429, false);
 
-  const secret = request.headers.get('X-Delete-Secret');
-  if (!await verifySecret(secret, env.DELETE_SECRET)) return jsonResponse({ error: '인증 실패' }, 403, false);
 
   try {
     const metaStr = await env.AR_META.get(groupId);
@@ -555,68 +502,6 @@ async function deleteGroup(env, meta) {
     return ops;
   }));
   await env.AR_META.delete(meta.id);
-}
-
-// ─── Auth Helpers ────────────────────────────────────────────────
-
-/**
- * 타이밍 공격 방지 비밀 검증 (HMAC 기반 constant-time 비교)
- * 단순 문자열 비교(===)는 길이/내용에 따라 실행 시간이 달라져 시크릿 유추 가능
- * @param {string|null} provided
- * @param {string} expected
- * @returns {Promise<boolean>}
- */
-async function verifySecret(provided, expected) {
-  if (!provided || !expected) return false;
-  const enc = new TextEncoder();
-  const key = await crypto.subtle.importKey(
-    'raw', enc.encode('ar-verify'),
-    { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']
-  );
-  const [sigA, sigB] = await Promise.all([
-    crypto.subtle.sign('HMAC', key, enc.encode(provided)),
-    crypto.subtle.sign('HMAC', key, enc.encode(expected)),
-  ]);
-  const a = new Uint8Array(sigA), b = new Uint8Array(sigB);
-  let diff = 0;
-  for (let i = 0; i < a.length; i++) diff |= a[i] ^ b[i];
-  return diff === 0;
-}
-
-/**
- * IP 기반 Rate Limiting — 60초 윈도우 내 최대 10회
- * KV key: `rl:{ip}` (expirationTtl: 60초)
- * @param {any} env
- * @param {string} ip
- * @returns {Promise<boolean>} true = 허용
- */
-async function checkRateLimit(env, ip) {
-  const key = 'rl:' + ip;
-  const raw = await env.AR_META.get(key);
-  const count = raw ? parseInt(raw, 10) : 0;
-  if (count >= 10) return false;
-  await env.AR_META.put(key, String(count + 1), { expirationTtl: 60 });
-  return true;
-}
-
-// 인증 시도: IP당 5분에 최대 10회 (브루트포스 방지)
-async function checkAuthRateLimit(env, ip) {
-  const key = 'rl:auth:' + ip;
-  const raw = await env.AR_META.get(key);
-  const count = raw ? parseInt(raw, 10) : 0;
-  if (count >= 10) return false;
-  await env.AR_META.put(key, String(count + 1), { expirationTtl: 300 });
-  return true;
-}
-
-// 업로드 전용: IP당 10분에 최대 5회
-async function checkUploadRateLimit(env, ip) {
-  const key = 'rl:upload:' + ip;
-  const raw = await env.AR_META.get(key);
-  const count = raw ? parseInt(raw, 10) : 0;
-  if (count >= 5) return false;
-  await env.AR_META.put(key, String(count + 1), { expirationTtl: 600 });
-  return true;
 }
 
 // ─── HTML 서빙 (보안 헤더 포함) ──────────────────────────────────
@@ -672,7 +557,7 @@ function handleCORS(path) {
     || /^\/api\/project\/[a-z0-9]+(\/file\/\d+(\/android)?)?$/.test(path);
   const headers = {
     'Access-Control-Allow-Methods': 'GET, POST, DELETE, PATCH, OPTIONS, HEAD',
-    'Access-Control-Allow-Headers': 'Content-Type, Range, X-Delete-Secret, X-Upload-Auth',
+    'Access-Control-Allow-Headers': 'Content-Type, Range',
     'Access-Control-Expose-Headers': 'Content-Range, Content-Length, Accept-Ranges',
     'Access-Control-Max-Age': '86400'
   };

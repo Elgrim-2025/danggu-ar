@@ -1,49 +1,6 @@
 (function () {
     'use strict';
 
-    // ─── 접근 인증 ───────────────────────────────────────────────
-
-    let uploadSecret = '';
-
-    const loginOverlay  = document.getElementById('upload-login');
-    const loginInput    = document.getElementById('upload-secret-input');
-    const loginBtn      = document.getElementById('upload-login-btn');
-    const loginError    = document.getElementById('upload-login-error');
-
-    async function verifyUploadSecret(pw) {
-        try {
-            const res = await fetch('/api/auth', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ password: pw })
-            });
-            return res.ok;
-        } catch (_) { return false; }
-    }
-
-    function showApp() {
-        loginOverlay.classList.add('hidden');
-    }
-
-    loginBtn.addEventListener('click', async () => {
-        const pw = loginInput.value.trim();
-        if (!pw) return;
-        loginBtn.disabled = true;
-        loginBtn.textContent = '확인 중...';
-        const ok = await verifyUploadSecret(pw);
-        loginBtn.disabled = false;
-        loginBtn.textContent = '확인';
-        if (ok) {
-            uploadSecret = pw;
-            showApp();
-        } else {
-            loginError.classList.remove('hidden');
-            loginInput.value = '';
-            loginInput.focus();
-        }
-    });
-
-    loginInput.addEventListener('keydown', e => { if (e.key === 'Enter') loginBtn.click(); });
 
 
     // ─────────────────────────────────────────────────────────────
@@ -398,7 +355,6 @@
             const result = await new Promise((resolve, reject) => {
                 const xhr = new XMLHttpRequest();
                 xhr.open('POST', '/api/upload');
-                xhr.setRequestHeader('X-Upload-Auth', uploadSecret);
                 xhr.upload.onprogress = e => {
                     if (e.lengthComputable) {
                         const pct = 5 + Math.round(e.loaded / e.total * 85);
