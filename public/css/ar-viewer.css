@@ -452,6 +452,33 @@ body {
 }
 #play-btn:active { transform: scale(0.88); }
 
+/* 회전 조정 버튼 — 우하단 */
+#rotate-toggle-btn {
+    position: absolute;
+    bottom: 30px;
+    right: 22px;
+    z-index: 10;
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    background: var(--btn-bg);
+    backdrop-filter: blur(18px);
+    -webkit-backdrop-filter: blur(18px);
+    border: 1px solid var(--btn-border);
+    color: rgba(255,255,255,0.65);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: transform 0.1s, background 0.2s;
+}
+#rotate-toggle-btn:active { transform: scale(0.9); }
+#rotate-toggle-btn.active {
+    background: rgba(91,108,242,0.45);
+    border-color: rgba(91,108,242,0.6);
+    color: #fff;
+}
+
 /* Adjust button + panel — hidden */
 #adjust-toggle-btn { display: none !important; }
 
@@ -524,6 +551,72 @@ body {
 .panel-row input[type="range"] {
     width: 100%;
     accent-color: var(--accent);
+}
+
+/* ─── 3D Rotate Panel ──────────────────────────── */
+
+#rotate-panel {
+    position: absolute;
+    bottom: 84px;
+    right: 18px;
+    z-index: 10;
+    background: rgba(8,8,18,0.92);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 14px;
+    padding: 16px 18px;
+    width: 248px;
+    backdrop-filter: blur(24px);
+    -webkit-backdrop-filter: blur(24px);
+}
+
+#rotate-panel-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 14px;
+    gap: 8px;
+}
+
+#rotate-panel-header span {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: rgba(255,255,255,0.4);
+    flex: 1;
+}
+
+#rotate-reset-btn {
+    background: rgba(91,108,242,0.15);
+    border: 1px solid rgba(91,108,242,0.3);
+    color: var(--accent);
+    font-size: 10px;
+    font-weight: 600;
+    cursor: pointer;
+    padding: 3px 10px;
+    border-radius: 6px;
+    transition: background 0.15s;
+    letter-spacing: 0.02em;
+}
+#rotate-reset-btn:hover { background: rgba(91,108,242,0.3); }
+
+#rotate-panel-close {
+    background: none;
+    border: none;
+    color: rgba(255,255,255,0.25);
+    font-size: 13px;
+    cursor: pointer;
+    padding: 3px 7px;
+    border-radius: 4px;
+    transition: color 0.15s;
+    line-height: 1;
+}
+#rotate-panel-close:hover { color: rgba(255,255,255,0.65); }
+
+.panel-divider {
+    height: 1px;
+    background: rgba(255,255,255,0.06);
+    margin: 12px 0 10px;
 }
 
 #save-overlay {

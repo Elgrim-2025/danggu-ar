@@ -34,6 +34,20 @@
     const adjSimVal        = document.getElementById('adj-sim-val');
     const adjSmoothVal     = document.getElementById('adj-smooth-val');
 
+    // ─── 회전 패널 DOM ──────────────────────────────────────────
+    const rotateToggleBtn  = document.getElementById('rotate-toggle-btn');
+    const rotatePanel      = document.getElementById('rotate-panel');
+    const rotatePanelClose = document.getElementById('rotate-panel-close');
+    const rotateResetBtn   = document.getElementById('rotate-reset-btn');
+    const rotXInput        = document.getElementById('rot-x');
+    const rotYInput        = document.getElementById('rot-y');
+    const rotZInput        = document.getElementById('rot-z');
+    const rotXVal          = document.getElementById('rot-x-val');
+    const rotYVal          = document.getElementById('rot-y-val');
+    const rotZVal          = document.getElementById('rot-z-val');
+    const opacityInput     = document.getElementById('opacity-range');
+    const opacityVal       = document.getElementById('opacity-val');
+
     // ─── URL에서 AR ID 추출 ──────────────────────────────────────
     const pathParts = window.location.pathname.split('/ar/');
     const arId = pathParts[1];
@@ -64,6 +78,9 @@
         color: [0, 1, 0],
         similarity: 0.4,
         smoothness: 0.1,
+        // 회전 (도 단위, 쿼터니언으로 변환하여 셰이더에 전달)
+        rotX: 0, rotY: 0, rotZ: 0,
+        opacity: 1.0,
     };
 
     // ─── 제스처 ──────────────────────────────────────────────────
@@ -149,20 +166,20 @@
             videoBackground.srcObject = cameraStream;
             await videoBackground.play();
             videoBackground.style.transform = facingMode === 'user' ? 'scaleX(-1)' : '';
-
-            if (typeof DeviceOrientationEvent !== 'undefined' &&
-                typeof DeviceOrientationEvent.requestPermission === 'function') {
-                try { await DeviceOrientationEvent.requestPermission(); } catch (e) {}
-            }
-
-            startScreen.classList.add('hidden');
-            loadingScreen.classList.remove('hidden');
-            loadingText.textContent = '파일 불러오는 중...';
-            await initAR();
         } catch (e) {
-            permissionStatus.textContent = '카메라 권한이 거부되었습니다. 브라우저 설정에서 허용해주세요.';
-            startBtn.disabled = false;
+            // 카메라 없이도 계속 진행 (검은 배경)
+            console.warn('카메라 사용 불가, 배경 없이 진행:', e.message);
         }
+
+        if (typeof DeviceOrientationEvent !== 'undefined' &&
+            typeof DeviceOrientationEvent.requestPermission === 'function') {
+            try { await DeviceOrientationEvent.requestPermission(); } catch (e) {}
+        }
+
+        startScreen.classList.add('hidden');
+        loadingScreen.classList.remove('hidden');
+        loadingText.textContent = '파일 불러오는 중...';
+        await initAR();
     });
 
     // ─── 로딩 진행률 ─────────────────────────────────────────────
@@ -182,6 +199,7 @@
         setupFileSwitchBtns();
         setupGestures();
         setupAdjustPanel();
+        setupRotatePanel();
         setLoadingProgress(100, '완료!');
         await new Promise(r => setTimeout(r, 280));
 
@@ -221,17 +239,22 @@
         if (!gl) throw new Error('WebGL2 미지원');
 
         // ── 버텍스 셰이더 ──────────────────────────────────────
-        // a_pos: 단위 사각형 (-1..1), 화면 픽셀 좌표로 변환 후 clip space로 변환
+        // a_pos: 단위 사각형 (-1..1), 3D 회전 후 화면 픽셀 좌표 → clip space 변환
         const vsrc = `#version 300 es
         in vec2 a_pos;
         uniform vec2 u_res;      // 캔버스 해상도 (실제 픽셀)
         uniform vec2 u_center;   // 오버레이 중심 (실제 픽셀)
         uniform vec2 u_half;     // 오버레이 반폭/반높이 (실제 픽셀)
+        uniform mat4 u_rot;      // 쿼터니언 기반 회전 행렬
         out vec2 vUv;
         void main() {
             // UV: a_pos.y=-1(화면 상단) → vUv.y=0(이미지 상단)
             vUv = vec2(a_pos.x * 0.5 + 0.5, a_pos.y * 0.5 + 0.5);
-            vec2 sp = u_center + a_pos * u_half;
+            // 로컬 좌표를 3D로 확장 후 회전
+            vec4 local = u_rot * vec4(a_pos, 0.0, 1.0);
+            // 간단한 원근감 (z가 카메라 쪽으로 오면 커짐)
+            float persp = 1.0 / (1.0 - local.z * 0.4);
+            vec2 sp = u_center + local.xy * u_half * persp;
             vec2 clip = sp / u_res * 2.0 - 1.0;
             clip.y = -clip.y;
             gl_Position = vec4(clip, 0.0, 1.0);
@@ -245,6 +268,7 @@
         uniform float u_sim;
         uniform float u_smooth;
         uniform bool u_useChroma;
+        uniform float u_opacity;
         in vec2 vUv;
         out vec4 outColor;
         vec2 rgb2uv(vec3 c) {
@@ -259,9 +283,9 @@
                 vec2 cv = rgb2uv(col.rgb) - rgb2uv(u_key);
                 float d = sqrt(dot(cv, cv));
                 float a = smoothstep(u_sim, u_sim + u_smooth, d);
-                outColor = vec4(col.rgb, col.a * a);
+                outColor = vec4(col.rgb, col.a * a * u_opacity);
             } else {
-                outColor = col;
+                outColor = vec4(col.rgb, col.a * u_opacity);
             }
         }`;
 
@@ -274,25 +298,46 @@
         if (!gl.getProgramParameter(glProgram, gl.LINK_STATUS))
             throw new Error(gl.getProgramInfoLog(glProgram));
 
-        // 단위 사각형 VAO
+        // 세분화된 사각형 VAO (원근 보정을 위해 격자 분할)
+        const SEG = 16;
+        const verts = [];
+        const indices = [];
+        for (let j = 0; j <= SEG; j++) {
+            for (let i = 0; i <= SEG; i++) {
+                verts.push(-1 + 2 * i / SEG, -1 + 2 * j / SEG);
+            }
+        }
+        for (let j = 0; j < SEG; j++) {
+            for (let i = 0; i < SEG; i++) {
+                const a = j * (SEG + 1) + i;
+                const b = a + 1;
+                const c = a + SEG + 1;
+                const d = c + 1;
+                indices.push(a, b, c, b, d, c);
+            }
+        }
         glVao = gl.createVertexArray();
         gl.bindVertexArray(glVao);
         glBuffer = gl.createBuffer();
         gl.bindBuffer(gl.ARRAY_BUFFER, glBuffer);
-        gl.bufferData(gl.ARRAY_BUFFER,
-            new Float32Array([-1,-1,  1,-1,  -1,1,  1,1]), gl.STATIC_DRAW);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(verts), gl.STATIC_DRAW);
         const loc = gl.getAttribLocation(glProgram, 'a_pos');
         gl.enableVertexAttribArray(loc);
         gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
+        const ibo = gl.createBuffer();
+        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ibo);
+        gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(indices), gl.STATIC_DRAW);
 
         glUniforms = {
             res:       gl.getUniformLocation(glProgram, 'u_res'),
             center:    gl.getUniformLocation(glProgram, 'u_center'),
             half:      gl.getUniformLocation(glProgram, 'u_half'),
+            rot:       gl.getUniformLocation(glProgram, 'u_rot'),
             tex:       gl.getUniformLocation(glProgram, 'u_tex'),
             key:       gl.getUniformLocation(glProgram, 'u_key'),
             sim:       gl.getUniformLocation(glProgram, 'u_sim'),
             smooth:    gl.getUniformLocation(glProgram, 'u_smooth'),
+            opacity:   gl.getUniformLocation(glProgram, 'u_opacity'),
             useChroma: gl.getUniformLocation(glProgram, 'u_useChroma'),
         };
 
@@ -406,6 +451,15 @@
         overlay.x     = window.innerWidth  / 2 - 57;
         overlay.y     = window.innerHeight / 2;
         overlay.scale = 1.0;
+        overlay.rotX = overlay.rotY = overlay.rotZ = 0;
+        overlay.opacity = 1.0;
+        // 회전/투명도 슬라이더가 있으면 동기화
+        if (rotXInput) {
+            rotXInput.value = rotYInput.value = rotZInput.value = 0;
+            rotXVal.textContent = rotYVal.textContent = rotZVal.textContent = '0°';
+            opacityInput.value = 100;
+            opacityVal.textContent = '100%';
+        }
     }
 
     /** @param {string} hex @returns {{r:number,g:number,b:number}} */
@@ -452,6 +506,42 @@
         });
     }
 
+    // ─── 쿼터니언 회전 ──────────────────────────────────────────
+    /** 오일러(도) → 쿼터니언 [x,y,z,w] (XYZ 순서) */
+    function eulerToQuat(degX, degY, degZ) {
+        const hx = degX * Math.PI / 360, hy = degY * Math.PI / 360, hz = degZ * Math.PI / 360;
+        const cx = Math.cos(hx), sx = Math.sin(hx);
+        const cy = Math.cos(hy), sy = Math.sin(hy);
+        const cz = Math.cos(hz), sz = Math.sin(hz);
+        return [
+            sx * cy * cz + cx * sy * sz,
+            cx * sy * cz - sx * cy * sz,
+            cx * cy * sz + sx * sy * cz,
+            cx * cy * cz - sx * sy * sz,
+        ];
+    }
+
+    /** 쿼터니언 → column-major 4×4 회전 행렬 (Float32Array) */
+    function quatToMat4(q) {
+        const [x, y, z, w] = q;
+        const x2 = x + x, y2 = y + y, z2 = z + z;
+        const xx = x * x2, xy = x * y2, xz = x * z2;
+        const yy = y * y2, yz = y * z2, zz = z * z2;
+        const wx = w * x2, wy = w * y2, wz = w * z2;
+        return new Float32Array([
+            1 - yy - zz, xy + wz,     xz - wy,     0,
+            xy - wz,     1 - xx - zz, yz + wx,     0,
+            xz + wy,     yz - wx,     1 - xx - yy, 0,
+            0,           0,           0,           1,
+        ]);
+    }
+
+    /** overlay 회전 상태로부터 4×4 행렬 계산 */
+    function getRotationMatrix() {
+        const q = eulerToQuat(overlay.rotX, overlay.rotY, overlay.rotZ);
+        return quatToMat4(q);
+    }
+
     // ─── 렌더 루프 ───────────────────────────────────────────────
     function animate() {
         animId = requestAnimationFrame(animate);
@@ -478,11 +568,13 @@
         gl.uniform2f(glUniforms.center, overlay.x * dpr, overlay.y * dpr);
         gl.uniform2f(glUniforms.half,   overlay.baseW * overlay.scale * 0.5 * dpr,
                                         overlay.baseH * overlay.scale * 0.5 * dpr);
+        gl.uniformMatrix4fv(glUniforms.rot, false, getRotationMatrix());
         gl.uniform3f(glUniforms.key,      overlay.color[0], overlay.color[1], overlay.color[2]);
         gl.uniform1f(glUniforms.sim,      overlay.similarity);
         gl.uniform1f(glUniforms.smooth,   overlay.smoothness);
         gl.uniform1i(glUniforms.useChroma, useChromaKey ? 1 : 0);
-        gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+        gl.uniform1f(glUniforms.opacity, overlay.opacity);
+        gl.drawElements(gl.TRIANGLES, 16 * 16 * 6, gl.UNSIGNED_SHORT, 0);
     }
 
     // ─── 카메라 전환 ─────────────────────────────────────────────
@@ -785,6 +877,44 @@
         adjustSmoothness.addEventListener('input', e => {
             overlay.smoothness = parseFloat(e.target.value);
             adjSmoothVal.textContent = overlay.smoothness.toFixed(2);
+        });
+    }
+
+    // ─── 3D 회전 패널 ─────────────────────────────────────────
+    function setupRotatePanel() {
+        rotateToggleBtn.addEventListener('click', () => {
+            const open = rotatePanel.classList.toggle('hidden');
+            rotateToggleBtn.classList.toggle('active', !rotatePanel.classList.contains('hidden'));
+        });
+        rotatePanelClose.addEventListener('click', () => {
+            rotatePanel.classList.add('hidden');
+            rotateToggleBtn.classList.remove('active');
+        });
+
+        function syncSlider(input, valEl, axis) {
+            input.addEventListener('input', () => {
+                const v = parseFloat(input.value);
+                overlay['rot' + axis] = v;
+                valEl.textContent = v + '°';
+            });
+        }
+        syncSlider(rotXInput, rotXVal, 'X');
+        syncSlider(rotYInput, rotYVal, 'Y');
+        syncSlider(rotZInput, rotZVal, 'Z');
+
+        opacityInput.addEventListener('input', () => {
+            const v = parseInt(opacityInput.value);
+            overlay.opacity = v / 100;
+            opacityVal.textContent = v + '%';
+        });
+
+        rotateResetBtn.addEventListener('click', () => {
+            overlay.rotX = overlay.rotY = overlay.rotZ = 0;
+            overlay.opacity = 1.0;
+            rotXInput.value = rotYInput.value = rotZInput.value = 0;
+            rotXVal.textContent = rotYVal.textContent = rotZVal.textContent = '0°';
+            opacityInput.value = 100;
+            opacityVal.textContent = '100%';
         });
     }
 
